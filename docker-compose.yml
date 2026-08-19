@@ -1,0 +1,74 @@
+# Everything recall needs, on one machine, with no account anywhere.
+#
+# The two model servers download their weights on first start, so there is
+# nothing to fetch by hand. Expect the first `up` to take a while and later
+# ones to be instant.
+#
+# MEMORY, the lesson that costs the most to relearn: model weights on a
+# unified-memory machine come out of the SAME pool as everything else, and
+# they do not show up in a process's RSS. Two large models resident can push
+# a box into the OOM killer, which then kills a model server mid-request. The
+# client sees an HTTP 502 that looks exactly like "this input was bad", so a
+# whole run gets written off as bad data. Keep the chat model modest, or run
+# one model at a time, and check free memory rather than trusting a comment.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: recall
+      POSTGRES_PASSWORD: recall
+      POSTGRES_DB: recall
+    ports: ["5433:5432"]
+    volumes: ["recall-db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recall"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  embeddings:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command: >
+      -hf ${RECALL_EMBED_HF:-Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0}
+      --host 0.0.0.0 --port 8080
+      --embedding --pooling last
+      -c 8192 -b 8192 -ub 8192
+      --metrics
+    ports: ["8080:8080"]
+    volumes: ["recall-models:/root/.cache/llama.cpp"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
+    restart: unless-stopped
+    # For an NVIDIA GPU, uncomment. Without it this runs on CPU, which works
+    # but embeds far more slowly.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+
+  chat:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command: >
+      -hf ${RECALL_CHAT_HF:-bartowski/Qwen2.5-7B-Instruct-GGUF:Q4_K_M}
+      --host 0.0.0.0 --port 8081
+      -c 16384 --jinja
+      --metrics
+    ports: ["8081:8081"]
+    volumes: ["recall-models:/root/.cache/llama.cpp"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 600s
+    restart: unless-stopped
+
+volumes:
+  recall-db:
+  recall-models:
