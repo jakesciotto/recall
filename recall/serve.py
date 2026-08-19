@@ -53,7 +53,7 @@ def handle_ask(body):
     with db.connect() as conn:
         question, hits, dates = _search(body, conn)
     text = None
-    if not body.get("sources_only"):
+    if not body.get("sources_only") and config.CHAT_URL:
         text = answer.chat(answer.build_prompt(question, hits))
     return {"question": question, "answer": text,
             "answer_blocks": render.blocks(text),
@@ -69,6 +69,9 @@ def stream_ask(body):
     with db.connect() as conn:
         question, hits, dates = _search(body, conn)
     yield sse("sources", {"sources": hits, "date_filter": _payload(dates)})
+    if not config.CHAT_URL:
+        yield sse("done", {"answer": None, "answer_blocks": []})
+        return
     parts = []
     for piece in answer.chat_stream(answer.build_prompt(question, hits)):
         parts.append(piece)

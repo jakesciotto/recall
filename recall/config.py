@@ -18,8 +18,10 @@ EMBED_URL = _env("RECALL_EMBED_URL", "http://127.0.0.1:8080/v1/embeddings")
 EMBED_MODEL = _env("RECALL_EMBED_MODEL", "embeddings")
 EMBED_DIMS = int(_env("RECALL_EMBED_DIMS", "1024"))
 
-CHAT_URL = _env("RECALL_CHAT_URL", "http://127.0.0.1:8081/v1/chat/completions")
-CHAT_MODEL = _env("RECALL_CHAT_MODEL", "chat")
+# Optional: only needed to write prose answers. Indexing and search do
+# not use it. Point this at any OpenAI-compatible endpoint you run.
+CHAT_URL = _env("RECALL_CHAT_URL", "")
+CHAT_MODEL = _env("RECALL_CHAT_MODEL", "")
 
 TOKENIZE_URL = _env("RECALL_TOKENIZE_URL", "")
 

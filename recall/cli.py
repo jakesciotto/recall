@@ -60,20 +60,39 @@ def cmd_doctor(args):
           print("          try: docker compose up -d")
           problems += 1
 
-    for label, url, body in (
-            ("embedding server", config.EMBED_URL,
-             {"model": config.EMBED_MODEL, "input": ["ping"]}),
-            ("chat server", config.CHAT_URL,
-             {"model": config.CHAT_MODEL, "max_tokens": 1,
-              "messages": [{"role": "user", "content": "hi"}]})):
+    try:
+        req = urllib.request.Request(
+            config.EMBED_URL,
+            json.dumps({"model": config.EMBED_MODEL,
+                        "input": ["ping"]}).encode(),
+            {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60):
+            _ok("embedding server", config.EMBED_URL)
+    except Exception as e:
+        _bad("embedding server", f"{config.EMBED_URL}  {type(e).__name__}")
+        print("          try: docker compose up -d")
+        problems += 1
+
+    # Generation is optional. Indexing and search never use it, so a missing
+    # endpoint is a note, not a fault.
+    if not config.CHAT_URL:
+        print("  note  no generation endpoint set; `recall ask` will return "
+              "sources only")
+        print("          set RECALL_CHAT_URL to write prose answers, "
+              "see docs/answering.md")
+    else:
         try:
             req = urllib.request.Request(
-                url, json.dumps(body).encode(),
+                config.CHAT_URL,
+                json.dumps({"model": config.CHAT_MODEL, "max_tokens": 1,
+                            "messages": [{"role": "user",
+                                          "content": "hi"}]}).encode(),
                 {"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=60):
-                _ok(label, url)
+                _ok("generation endpoint", config.CHAT_URL)
         except Exception as e:
-            _bad(label, f"{url}  {type(e).__name__}")
+            _bad("generation endpoint",
+                 f"{config.CHAT_URL}  {type(e).__name__}")
             problems += 1
 
     from . import chunking
@@ -130,7 +149,10 @@ def cmd_ask(args):
               file=sys.stderr)
     for i, h in enumerate(hits, start=1):
         print(f"[{i}] {answer.cite(h)}", file=sys.stderr)
-    if args.sources_only:
+    if args.sources_only or not config.CHAT_URL:
+        if not args.sources_only:
+            print("no generation endpoint set; showing sources only. "
+                  "See docs/answering.md.", file=sys.stderr)
         return 0 if hits else 1
 
     print()

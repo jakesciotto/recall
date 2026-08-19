@@ -1,16 +1,19 @@
 # Everything recall needs, on one machine, with no account anywhere.
 #
-# The two model servers download their weights on first start, so there is
+# The embedding server downloads its weights on first start, so there is
 # nothing to fetch by hand. Expect the first `up` to take a while and later
 # ones to be instant.
 #
-# MEMORY, the lesson that costs the most to relearn: model weights on a
-# unified-memory machine come out of the SAME pool as everything else, and
-# they do not show up in a process's RSS. Two large models resident can push
-# a box into the OOM killer, which then kills a model server mid-request. The
-# client sees an HTTP 502 that looks exactly like "this input was bad", so a
-# whole run gets written off as bad data. Keep the chat model modest, or run
-# one model at a time, and check free memory rather than trusting a comment.
+# This brings up what recall needs to INDEX and SEARCH: a database and an
+# embedding server. Writing prose answers is optional and uses whatever
+# OpenAI-compatible endpoint you already run, so no chat model is bundled
+# here. Point RECALL_CHAT_URL at yours. See docs/answering.md.
+#
+# MEMORY, if you do run a generation model alongside this: weights on a
+# unified-memory machine come out of the SAME pool as everything else and do
+# not appear in a process's RSS, so two resident models can push a box into
+# the OOM killer. It then kills a model server mid-request, and the client
+# sees an HTTP 502 that looks exactly like "this input was bad".
 
 services:
   db:
@@ -51,23 +54,6 @@ services:
     #   resources:
     #     reservations:
     #       devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
-
-  chat:
-    image: ghcr.io/ggml-org/llama.cpp:server
-    command: >
-      -hf ${RECALL_CHAT_HF:-bartowski/Qwen2.5-7B-Instruct-GGUF:Q4_K_M}
-      --host 0.0.0.0 --port 8081
-      -c 16384 --jinja
-      --metrics
-    ports: ["8081:8081"]
-    volumes: ["recall-models:/root/.cache/llama.cpp"]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 60
-      start_period: 600s
-    restart: unless-stopped
 
 volumes:
   recall-db:

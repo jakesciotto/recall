@@ -1,26 +1,26 @@
 # recall
 
-Ask questions about your own life, answered from your own archive, on your
-own machine. No account, no upload, no API key. Your mail and messages never
-leave the box.
+Search your own life. recall indexes your documents, messages, and mail, then
+answers questions from them with citations, on your own machine. No account,
+no upload, no API key. Nothing leaves the box.
 
 ```
 $ recall ask "what did I write about the Chicago trip in 2018"
 date filter: 2018 -> 2018-01-01 .. 2019-01-01
 [1] messages/453359 (2018-05-29)
 [2] email:1772970206 (2018-06-07)
-
-In 2018 you wrote about Chicago twice. On 29 May you said you were
-"extremely relieved" after worrying you would not be able to go [1]. On
-7 June you described the city as "awesome" [2].
 ```
+
+Point it at a generation endpoint you already run and it writes the answer
+too, citing the same sources. That half is optional and nothing is bundled;
+see [docs/answering.md](docs/answering.md).
 
 ## Start
 
 ```bash
 git clone <this repo> && cd recall
 cp .env.example .env
-docker compose up -d          # postgres + two model servers, weights download themselves
+docker compose up -d          # postgres + an embedding server, weights download themselves
 pip install -e .
 
 # drop your exports into data/ (see the table below), then:
@@ -32,8 +32,12 @@ recall ask "when did I last see the dentist"
 `recall doctor` is the one to run when anything looks wrong. It checks every
 dependency, names the command that fixes each, and tells you what to do next.
 
-The first `docker compose up` downloads model weights and takes a while.
-Everything after that is local and immediate.
+The first `docker compose up` downloads the embedding model and takes a
+while. Everything after that is local and immediate.
+
+Writing prose answers is optional and uses whatever OpenAI-compatible
+endpoint you already run. recall does not bundle one, because which model you
+run is your choice and your hardware's.
 
 ## What you drop in
 
@@ -80,6 +84,7 @@ recall serve
 
 `POST /ask` returns JSON. `POST /ask/stream` sends Server-Sent Events:
 sources first, then answer tokens as they generate, then the parsed answer.
+With no generation endpoint configured, both return sources alone.
 Both require the bearer token, and the server refuses to start without one.
 
 It binds loopback by default. A retrieval API over a personal archive is a
@@ -88,8 +93,8 @@ interface and keep the token server-side.
 
 ## Requirements
 
-Docker, Python 3.10 or newer, and about 10 GB of disk for the models. A GPU
-makes ingestion far faster but nothing here requires one.
+Docker, Python 3.10 or newer, and about 2 GB of disk for the embedding model.
+A GPU makes indexing far faster but nothing here requires one.
 
 ## Licence
 
