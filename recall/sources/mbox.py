@@ -1,13 +1,8 @@
 """Email from an mbox export (Google Takeout, Thunderbird, offlineimap).
 
-Filtering is the job here, not parsing. On one real 93,430 message export,
-58,079 messages were automated notifications and marketing. Loading them
-buries a decade of real correspondence under newsletters.
-
-The filter is an ALLOWLIST, and that is load-bearing. A denylist looks
-equivalent and is not: a purchase receipt carries both `Category Purchases`
-and `Category Updates`, so "skip anything tagged Updates" throws away real
-receipts. Keep what you want; drop everything else.
+Filtering is the job, not parsing, and the filter is an allowlist: a receipt
+carries both Category Purchases and Category Updates, so a denylist drops
+real receipts. See docs/lessons.md.
 """
 
 import email
@@ -61,8 +56,8 @@ def _strip_html(html):
 
 
 def body_text(raw):
-    """Readable body, preferring text/plain. Never raises: a long-lived
-    mailbox holds malformed MIME, and one bad message must not end a run."""
+    """Readable body, preferring text/plain. Never raises: one malformed
+    message must not end a run."""
     try:
         msg = email.message_from_bytes(raw, policy=email.policy.compat32)
     except Exception:

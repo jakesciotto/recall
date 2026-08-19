@@ -1,17 +1,7 @@
 """The pipeline: detect, calibrate, chunk, embed, load, index.
 
-Ordering here is deliberate and each step exists because skipping it cost a
-real run.
-
-1. **Detect** so the user never has to declare what they downloaded.
-2. **Calibrate** the character budget against the real tokenizer, per source.
-   A budget guessed for prose rejects a third of dense mail outright.
-3. **Skip refs already stored** so a re-run costs only what changed. This is
-   what turns a failed 20 hour run into a resumed one.
-4. **Embed with a health-aware retry**, so a restarted server does not get
-   mistaken for bad data.
-5. **Build the vector index LAST.** Loading into an existing HNSW index makes
-   every insert pay maintenance.
+The order matters and each step earns its place in docs/lessons.md. The
+vector index is built last so the load does not pay index maintenance.
 """
 
 import sys

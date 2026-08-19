@@ -1,13 +1,4 @@
-"""The source adapter contract.
-
-A user should drop an export into the data directory and run one command.
-That works because every adapter answers two questions for itself: "is my
-data in here?" and "what chunks does it produce?". Nobody has to tell the
-tool what they downloaded.
-
-Adding a source means writing one class and importing it. Nothing else in the
-pipeline changes.
-"""
+"""The source adapter contract. See docs/sources.md to add one."""
 
 import dataclasses
 
@@ -19,13 +10,9 @@ REQUIRED_KEYS = {"ref", "text", "source", "occurred_at", "date_confidence"}
 class Chunk:
     """One embeddable unit.
 
-    `ref` is the identity and it must be STABLE across runs. The loader skips
-    refs it already holds, which is what makes a re-run cheap and a resume
-    possible. An unstable ref turns every re-run into a full re-embed, and a
-    colliding ref silently drops data.
-
-    `occurred_at` carries `date_confidence` with it, because a guessed date
-    and a real one must never look alike downstream.
+    `ref` must be stable across runs: the loader skips refs it already holds.
+    `date_confidence` travels with `occurred_at` so a guessed date never
+    looks like a stated one.
     """
     ref: str
     text: str
@@ -45,9 +32,7 @@ class Source:
 
     name = "unnamed"
 
-    # Records this source emits, used to calibrate the character budget.
-    # Return the LONGEST texts it produces: short samples measure nothing,
-    # because it is the long dense ones that overrun the context.
+    # The LONGEST texts this source produces. Budgets calibrate from these.
     def samples(self, path):
         return []
 

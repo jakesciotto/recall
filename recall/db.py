@@ -1,11 +1,4 @@
-"""Postgres access and schema.
-
-One structural decision worth keeping: **build the index AFTER the bulk
-load**, never before. Loading into an existing HNSW index makes every insert
-pay index maintenance. On one corpus the same data loaded at 1,568 rows per
-minute without the index and a fraction of that with it, and building the
-index afterwards took two minutes.
-"""
+"""Postgres access and schema. See docs/lessons.md."""
 
 import contextlib
 
@@ -25,7 +18,7 @@ CREATE TABLE IF NOT EXISTS chunk (
   thread          text,
   path            text,
   embedding       vector(%(dims)s),
-  -- Generated, so any change to `text` updates full-text search for free.
+  -- Generated: a text change updates full-text search for free.
   tsv             tsvector GENERATED ALWAYS AS
                     (to_tsvector('english', text)) STORED
 );
@@ -74,8 +67,7 @@ def build_vector_index(conn):
 
 
 def existing_refs(conn):
-    """Refs already stored. This is what makes a re-run cheap and a resume
-    possible, and it is why adapters must emit stable refs."""
+    """Refs already stored. Re-runs skip these, so adapter refs must be stable."""
     with conn.cursor() as cur:
         cur.execute("SELECT ref FROM chunk")
         return {r[0] for r in cur}
@@ -93,9 +85,8 @@ def counts(conn):
 
 
 def fetch(conn, sql, params=None):
-    """Rows as dicts. Postgres builds the JSON rather than this code parsing
-    a text table: chunk text carries newlines, commas, and quotes, and any
-    delimiter parse corrupts exactly the rows containing the delimiter."""
+    """Rows as dicts. Postgres builds the JSON; chunk text contains newlines,
+    commas and quotes, so no delimiter parse is safe."""
     with conn.cursor() as cur:
         cur.execute(f"SELECT coalesce(json_agg(t), '[]'::json) FROM ({sql}) t",
                     params or ())

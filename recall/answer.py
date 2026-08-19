@@ -1,12 +1,7 @@
 """Grounded answers from the local model.
 
-Citations are mandatory. An answer that cannot be traced back to a stored
-document is indistinguishable from a hallucination about the user's own life,
-and nothing downstream can tell the difference.
-
-An empty retrieval therefore produces a prompt that FORBIDS an answer. Send
-the bare question instead and the model answers it from its weights, which is
-the single worst failure this system can have.
+Citations are mandatory, and an empty retrieval produces a prompt that
+forbids answering. See docs/lessons.md.
 """
 
 import json
@@ -62,12 +57,8 @@ def chat(prompt, model=None, timeout=600):
 def chat_stream(prompt, model=None, timeout=600):
     """Yield text as the model produces it.
 
-    Streaming makes nothing faster. It stops a long wait from reading as a
-    failure, which is the entire point: measured on one setup, the first
-    token arrived at 0.6 seconds against a 12 second total.
-
-    One malformed frame is skipped rather than ending the stream. Truncating
-    a live answer is worse than dropping a token.
+    A malformed frame is skipped rather than ending the stream: truncating a
+    live answer is worse than dropping a token.
     """
     with urllib.request.urlopen(_request(prompt, model, True), timeout=timeout) as r:
         for raw in r:

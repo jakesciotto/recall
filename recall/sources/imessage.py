@@ -1,15 +1,7 @@
 """Apple Messages, from a copy of chat.db.
 
-Two findings from a real 675,967 message database shape this adapter.
-
-**The text is not in `message.text`.** On modern macOS that column is NULL
-for 99.7 percent of rows; the real body sits in `attributedBody`, an Apple
-NSArchiver blob. An adapter that reads `text` captures a fraction of a
-percent of the corpus and reports no error at all.
-
-**Group chats have names, and they are worth more than they look.** 55 named
-chats covered 15 percent of one corpus. Without the name, those chunks show
-only phone numbers, so a question naming the group cannot match anything.
+On modern macOS `message.text` is NULL for almost every row; the body lives
+in `attributedBody`. Group chat names matter too. See docs/lessons.md.
 """
 
 import datetime as dt
@@ -33,12 +25,8 @@ LEFT JOIN chat c ON c.ROWID = cmj.chat_id
 
 
 def decode_attributed_body(blob):
-    """Pull the body string out of Apple's streamtyped archive.
-
-    Find NSString, scan to the next 0x2b, read a variable-width length, then
-    that many UTF-8 bytes. Validated against 1,795 rows that carried both
-    columns: 1,795 exact matches.
-    """
+    """Body string from Apple's streamtyped archive: find NSString, scan to
+    the next 0x2b, read a variable-width length, then that many UTF-8 bytes."""
     if not blob:
         return ""
     i = blob.find(b"NSString")

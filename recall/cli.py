@@ -33,26 +33,32 @@ def cmd_doctor(args):
     print("recall doctor")
     problems = 0
 
+    have_driver = True
     try:
         import psycopg  # noqa: F401
         _ok("psycopg installed")
     except ImportError:
         _bad("psycopg missing", "pip install 'psycopg[binary]'")
+        have_driver = False
         problems += 1
 
     from . import db
-    try:
-        with db.connect() as conn:
-            db.apply_schema(conn)
-            rows = db.counts(conn)
-        total = sum(n for _, n in rows)
-        _ok("postgres reachable", f"{total:,} chunks stored")
-        for source, n in rows:
-            print(f"          {source:14s} {n:,}")
-    except Exception as e:
-        _bad("postgres unreachable", f"{type(e).__name__}: {str(e)[:90]}")
-        print("          try: docker compose up -d")
-        problems += 1
+    # Without the driver the database check can only repeat the same fault.
+    if not have_driver:
+        print("  skip  postgres check (needs psycopg)")
+    else:
+      try:
+          with db.connect() as conn:
+              db.apply_schema(conn)
+              rows = db.counts(conn)
+          total = sum(n for _, n in rows)
+          _ok("postgres reachable", f"{total:,} chunks stored")
+          for source, n in rows:
+              print(f"          {source:14s} {n:,}")
+      except Exception as e:
+          _bad("postgres unreachable", f"{type(e).__name__}: {str(e)[:90]}")
+          print("          try: docker compose up -d")
+          problems += 1
 
     for label, url, body in (
             ("embedding server", config.EMBED_URL,
@@ -91,8 +97,11 @@ def cmd_doctor(args):
         _bad("data directory missing", str(data))
         problems += 1
 
-    print("\nready" if not problems else f"\n{problems} problem(s) to fix")
-    return 1 if problems else 0
+    if problems:
+        print(f"\n{problems} problem(s) above. Fix those and run doctor again.")
+        return 1
+    print("\nready. next:  recall ingest")
+    return 0
 
 
 def cmd_ingest(args):
@@ -144,6 +153,8 @@ def cmd_serve(args):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="recall", description=__doc__.splitlines()[0])
+    p.add_argument("--debug", action="store_true",
+                   help="show the traceback instead of a short message")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     d = sub.add_parser("doctor", help="check the setup")
@@ -170,7 +181,24 @@ def main(argv=None):
     s.set_defaults(fn=cmd_serve)
 
     args = p.parse_args(argv)
-    return args.fn(args)
+    try:
+        return args.fn(args)
+    except KeyboardInterrupt:
+        print("\ninterrupted. Progress is stored; re-run to resume.",
+              file=sys.stderr)
+        return 130
+    except ImportError as e:
+        print(f"missing dependency: {e}", file=sys.stderr)
+        print("run:  pip install -e .", file=sys.stderr)
+        return 1
+    except Exception as e:
+        # A setup fault should point at the command that diagnoses it, not
+        # at a stack trace. Use --debug when you want the traceback.
+        if args.debug:
+            raise
+        print(f"{type(e).__name__}: {e}", file=sys.stderr)
+        print("run:  recall doctor", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

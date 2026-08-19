@@ -1,13 +1,7 @@
 """Hybrid retrieval: dense and sparse, fused on rank.
 
-Hybrid ALWAYS. Pure vector search underperforms badly on a personal archive
-because so many real questions are metadata questions wearing semantic
-clothes ("the invoice from spring 2023"). Dense search alone also misses a
-rare literal string that sparse search finds instantly.
-
-Fusion works on RANK, never on score. Cosine distance and ts_rank are not
-comparable numbers, and normalising them into one scale invents a
-relationship that does not exist.
+Fusion works on rank, not score: cosine distance and ts_rank are not
+comparable numbers. See docs/lessons.md.
 """
 
 import collections
@@ -57,14 +51,9 @@ def _span(year, month, months):
 def parse_dates(query, today):
     """Pull a date range out of the question.
 
-    `today` is a parameter, never the clock, so tests cannot start failing on
-    1 January.
-
-    Deliberately conservative. A wrong date filter does not degrade an
-    answer, it REMOVES it, and the user sees a confident "nothing found"
-    instead of a mistake. So it fires only on an explicit year or an
-    unambiguous relative phrase. A bare month name does not fire: "march" is
-    also an ordinary verb.
+    `today` is a parameter, never the clock, so tests cannot fail on 1
+    January. Deliberately conservative: a wrong filter removes an answer
+    rather than degrading it.
     """
     q = (query or "").lower()
 
@@ -98,12 +87,8 @@ COLUMNS = "ref, text, occurred_at, source, path"
 
 
 def where_clause(dates, source):
-    """Metadata pre-filter, as SQL plus bound parameters.
-
-    Parameters, not interpolation: the question is user text and it must
-    never be concatenated into SQL. The upper bound is exclusive because
-    parse_dates returns the first instant of the NEXT period.
-    """
+    """Metadata pre-filter, as SQL plus bound parameters. The upper bound is
+    exclusive: parse_dates returns the first instant of the next period."""
     parts, params = [], []
     if dates and dates.since:
         parts.append("occurred_at >= %s")
@@ -122,8 +107,8 @@ def dense_sql(where, pool):
 
 
 def sparse_sql(where, pool):
-    """plainto_tsquery, not to_tsquery: it takes plain user text and never
-    raises on punctuation. to_tsquery rejects an ordinary question."""
+    """plainto_tsquery, not to_tsquery: to_tsquery rejects ordinary
+    punctuation."""
     join = " AND " if where else " WHERE "
     return (f"SELECT {COLUMNS} FROM chunk{where}{join}"
             f"tsv @@ plainto_tsquery('english', %s) "

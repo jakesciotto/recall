@@ -1,10 +1,6 @@
-"""HTTP API. Retrieval and generation stay on this machine; only the answer
-travels.
+"""HTTP API. Retrieval and generation stay local; only the answer travels.
 
-A retrieval API over a personal archive is a materially higher-value target
-than a bare model endpoint, so this refuses to serve without a bearer token
-and it FAILS CLOSED: an unset token means nothing is accepted, never that
-anything is.
+Requires a bearer token and fails closed: an unset token accepts nothing.
 """
 
 import hmac
@@ -67,10 +63,8 @@ def handle_ask(body):
 def stream_ask(body):
     """Sources first, then tokens, then the parsed answer.
 
-    Retrieval takes a fraction of a second and generation takes tens of
-    seconds, so sources go out immediately and the user reads what was found
-    while the answer is still being written. Blocks need the whole answer, so
-    they arrive last and the UI swaps them in.
+    Retrieval is fast and generation is slow, so sources go out immediately.
+    Blocks need the whole answer, so they arrive last.
     """
     with db.connect() as conn:
         question, hits, dates = _search(body, conn)

@@ -1,18 +1,7 @@
-"""Embedding, with the failure handling that a long run actually needs.
+"""Embedding with health-aware retry.
 
-The expensive lesson behind this file: an embedding server that dies mid-run
-answers HTTP 502, and so does a server that merely refuses one oversized
-request. They look identical to the client and need opposite responses.
-
-A client that reacts to every failure by shrinking the request will, against
-a dead server, bisect a batch down to single items and write every one of
-them off as bad data. That happened. It cost 55 chunks and the log blamed the
-chunks, including one 279 characters long that could not possibly have been
-too large.
-
-So: on failure, ask the server's health endpoint first. Wait for a restart,
-retry the same batch, and only treat a refusal as an oversize signal once a
-healthy server has given one.
+A dead server and an oversized request both answer HTTP 502, and they need
+opposite responses. See docs/lessons.md.
 """
 
 import json
@@ -24,8 +13,8 @@ from . import config
 
 
 class EmbeddingServerDown(RuntimeError):
-    """Raised when the server never comes back. Ending the run beats draining
-    the rest of the corpus into a drop list."""
+    """The server never came back. Stopping beats draining the corpus into a
+    drop list, because stored work survives and the next run resumes."""
 
 
 def _health_url():
@@ -69,9 +58,8 @@ def server_ready(timeout=900, url=None):
 def embed_safe(items, on_drop=None, on_wait=None, _ready=None):
     """Embed a batch. Returns (items_kept, vectors).
 
-    A failure is ambiguous, so this distinguishes the two causes before
-    reacting. See the module docstring: reacting the wrong way silently
-    discards good data and blames it.
+    Checks health before bisecting, so a restarted server is never mistaken
+    for oversized input.
     """
     ready = _ready or server_ready
     texts = [i["text"] for i in items]
@@ -99,11 +87,8 @@ def embed_safe(items, on_drop=None, on_wait=None, _ready=None):
 
 
 def batches(items, budget_chars, cap=64):
-    """Group items so one request stays inside the server's batch size.
-
-    Batching by COUNT breaks the moment item length changes: 64 short
-    messages fit easily, 64 document chunks do not. Budget by characters.
-    """
+    """Group items by character budget, not by count: 64 short messages fit
+    where 64 document chunks do not."""
     batch, size = [], 0
     for item in items:
         n = len(item["text"])

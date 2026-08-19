@@ -1,16 +1,8 @@
 """Loose documents: the catch-all adapter.
 
-Two guards live here, both learned the hard way.
-
-**Decide exclusions before ingesting, not after.** A personal archive holds
-pirated ebooks, cached node_modules, and credential files. One filter written
-against a path prefix leaked about 19,000 repository files and a credentials
-file into a corpus, because the prefix stopped matching once the tree was
-reorganised while the include rules kept matching. Match on path SEGMENTS and
-on names, never on a rooted prefix.
-
-**Sniff the content, do not trust the extension.** A Photoshop file named
-.pdf becomes two million characters of noise if you believe the name.
+Exclusions match path segments, never a rooted prefix, because a prefix stops
+matching once a tree is reorganised while the include rules keep matching.
+See docs/lessons.md.
 """
 
 import re

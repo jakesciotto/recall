@@ -23,13 +23,14 @@ cp .env.example .env
 docker compose up -d          # postgres + two model servers, weights download themselves
 pip install -e .
 
-mkdir -p data
-# drop your exports into data/ (see below), then:
-
+# drop your exports into data/ (see the table below), then:
 recall doctor                 # says exactly what is missing, if anything
 recall ingest                 # finds what you dropped in and indexes it
 recall ask "when did I last see the dentist"
 ```
+
+`recall doctor` is the one to run when anything looks wrong. It checks every
+dependency, names the command that fixes each, and tells you what to do next.
 
 The first `docker compose up` downloads model weights and takes a while.
 Everything after that is local and immediate.

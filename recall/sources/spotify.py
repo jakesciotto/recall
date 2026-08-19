@@ -1,15 +1,8 @@
-"""Spotify extended streaming history.
+"""Spotify extended streaming history, rolled up to one chunk per month.
 
-The reason this adapter rolls up: one real export held 391,896 plays. As one
-chunk each that is nearly twice an entire corpus, all of it listening noise,
-and every unrelated query gets worse. Rolled to one chunk per month it is
-about 126 chunks that answer "what was I listening to around then".
-
-Two details that matter. A play under 30 seconds is a skip, and counting
-skips makes a briefly sampled artist look like a favourite; 30 seconds is
-Spotify's own definition of a stream. And the export carries thousands of
-distinct IP addresses, which is a location trail that has no business in a
-retrieval corpus, so nothing here ever writes one.
+Hundreds of thousands of plays as one chunk each would drown a corpus. Plays
+under 30 seconds are skips and do not count. The export's IP addresses are a
+location trail and never reach a chunk. See docs/lessons.md.
 """
 
 import collections
