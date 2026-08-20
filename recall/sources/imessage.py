@@ -8,7 +8,7 @@ import datetime as dt
 import sqlite3
 import struct
 
-from .base import Chunk, Source
+from .base import Chunk, Source, walk
 
 APPLE_EPOCH = 978307200
 SESSION_GAP_S = 1800     # live chat: 30 minutes separates two conversations
@@ -63,7 +63,8 @@ class IMessage(Source):
     name = "messages"
 
     def detect(self, root):
-        return sorted(p for p in root.rglob("chat.db") if p.is_file())
+        return sorted(p for p in walk(root)
+                      if p.name == "chat.db" and p.is_file())
 
     def _rows(self, path):
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
@@ -93,10 +94,10 @@ class IMessage(Source):
 
     def chunks(self, path, budget, contacts=None):
         rows, names = self._rows(path)
-        yield from self._windows(rows, names, contacts)
+        yield from self._windows(rows, names, contacts, budget)
 
-    def _windows(self, rows, names, contacts):
-        from ..chunking import sessions
+    def _windows(self, rows, names, contacts, budget):
+        from ..chunking import parts, sessions
         from ..naming import header, label
         contacts = contacts or {}
         for window in sessions(rows, SESSION_GAP_S, MAX_TURNS,
@@ -108,16 +109,19 @@ class IMessage(Source):
                 first["at"], dt.timezone.utc).isoformat().replace("+00:00", "Z")
             name = names.get(first["thread"])
             group = f'"{name}" with ' if name else "with "
-            body = "\n".join(
+            head = f"[{when[:10]}, {group}{header(who, contacts)}"
+            lines = [
                 f"{'me' if r['mine'] else label(r['handle'] or 'them', contacts)}"
                 f": {r['text']}"
-                for r in window)
-            yield Chunk(
-                ref=f"message:{first['rowid']}",
-                text=f"[{when[:10]}, {group}{header(who, contacts)}]\n{body}",
-                source=self.name,
-                occurred_at=when,
-                date_confidence="exact",
-                participants=who,
-                thread=first["thread"],
-            )
+                for r in window]
+            for suffix, text in parts(lines, budget,
+                                      lambda l: f"{head}{l}]"):
+                yield Chunk(
+                    ref=f"message:{first['rowid']}{suffix}",
+                    text=text,
+                    source=self.name,
+                    occurred_at=when,
+                    date_confidence="exact",
+                    participants=who,
+                    thread=first["thread"],
+                )

@@ -158,7 +158,8 @@ class TestAdaptersUseContacts(unittest.TestCase):
                  "at": 1_600_000_000, "mine": False, "text": "hello"}]
         names = {}
         got = list(imessage.IMessage()._windows(rows, names,
-                                                {"+15551234567": "cal"}))
+                                                {"+15551234567": "cal"},
+                                                5000))
         self.assertIn("cal", got[0].text)
         self.assertEqual(got[0].participants, ["+15551234567"],
                          "the raw identifier is the join key for the next update")
@@ -167,8 +168,8 @@ class TestAdaptersUseContacts(unittest.TestCase):
         from recall.sources import imessage
         rows = [{"rowid": 1, "thread": "g", "handle": "+15551234567",
                  "at": 1_600_000_000, "mine": False, "text": "hello"}]
-        a = list(imessage.IMessage()._windows(rows, {}, {}))[0].text
-        b = list(imessage.IMessage()._windows(rows, {}, None))[0].text
+        a = list(imessage.IMessage()._windows(rows, {}, {}, 5000))[0].text
+        b = list(imessage.IMessage()._windows(rows, {}, None, 5000))[0].text
         self.assertEqual(a, b)
 
 

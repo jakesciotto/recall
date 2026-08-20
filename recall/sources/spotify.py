@@ -6,11 +6,10 @@ location trail and never reach a chunk. See docs/lessons.md.
 """
 
 import collections
-import glob
+import fnmatch
 import json
-import os
 
-from .base import Chunk, Source
+from .base import Chunk, Source, walk
 
 MIN_PLAY_MS = 30_000
 
@@ -19,18 +18,17 @@ class Spotify(Source):
     name = "spotify"
 
     def detect(self, root):
-        hits = set()
-        for p in root.rglob("*Streaming_History_Audio*.json"):
-            hits.add(p.parent)
-        return sorted(hits)
+        return sorted({p.parent for p in walk(root)
+                       if fnmatch.fnmatch(p.name,
+                                          "*Streaming_History_Audio*.json")})
 
     def samples(self, path):
         return []          # rollup chunks are bounded by construction
 
     def chunks(self, path, budget, contacts=None):
         plays = []
-        for f in sorted(glob.glob(os.path.join(str(path), "**",
-                                               "*Audio*.json"), recursive=True)):
+        for f in sorted(p for p in walk(path)
+                        if fnmatch.fnmatch(p.name, "*Audio*.json")):
             with open(f, encoding="utf-8") as fh:
                 plays.extend(json.load(fh))
 

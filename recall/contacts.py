@@ -11,6 +11,8 @@ from another, because the thin one was a stale partial copy.
 
 import re
 
+from .sources.base import walk
+
 # Five and six digit senders are short codes: banks, 2FA, marketing. They are
 # not people, and normalising them would collide with real numbers.
 MIN_DIGITS = 7
@@ -77,7 +79,8 @@ def load(path):
 
 
 def detect(root):
-    return sorted(p for p in root.rglob("*.vcf") if p.is_file())
+    return sorted(p for p in walk(root)
+                  if p.name.lower().endswith(".vcf") and p.is_file())
 
 
 def load_all(root):

@@ -84,6 +84,21 @@ what makes a re-run cheap and a resume possible. When one budget change
 re-split some threads, the reload embedded 1,300 chunks and skipped 21,354
 untouched. An unstable ref turns every re-run into a full re-embed.
 
+**A window bounds turns, not characters.** A twenty turn session and a busy
+month are both unbounded in size. One oversized chunk does not fail loudly:
+the server refuses it, the retry bisects a single item down to itself, and it
+is dropped. On one export the largest direct message chunk came to 5,871
+characters against a 7,700 budget, so nothing was lost. That is data luck, not
+a guarantee. Bound the size where the chunk is built.
+
+**The header comes out of the budget.** A body packed right up to the limit
+plus a header is over the limit. It only shows at certain line lengths, so a
+test with one fixed length passes while the bug is still there. Sweep the
+lengths. `chunking.parts` reserves the header and numbers the parts.
+
+**Number a part only when there is more than one.** A period that fits keeps
+its bare ref, so a later run does not re-embed every chunk that never changed.
+
 ## Naming people
 
 **Export your address book from wherever it actually lives.** The same corpus
@@ -107,6 +122,15 @@ prediction the pass would have shipped silently missing a third of its work.
 
 **Sort the labels.** Unstable ordering makes an unchanged chunk look changed,
 and it re-embeds for nothing.
+
+**An export that names people by opaque id often carries its own name table
+somewhere else in the same archive.** A Twitter archive identifies every
+direct message sender by numeric account id and ships no directory, so 86,910
+messages read as conversations with strangers. The `user_mentions` inside your
+own tweets pair an id with a screen name, which resolved about 30 percent of
+senders and covered the busiest threads. Leave the rest as their raw id: one
+shared "unknown" bucket merges separate people into a single apparent
+speaker.
 
 ## Retrieval
 
@@ -134,6 +158,13 @@ rooted path fails *open* once the tree is reorganised: it stops matching
 while the include rules keep matching. One such filter would have leaked
 about 19,000 repository files and a credentials file into a corpus. Match on
 path segments and names.
+
+**`pathlib.rglob` never enters a symlinked directory.** Someone with a 136 GB
+message archive links it into the data directory instead of copying it, and
+every adapter then reports nothing while `doctor` says "no recognised
+sources". The tool looks like it ran. `sources.base.walk` uses `os.walk` with
+`followlinks=True` and remembers real paths, so a link back to a parent ends
+the walk instead of looping forever.
 
 **Do not trust file extensions.** A Photoshop file named `.pdf` becomes two
 million characters of noise. Sniff the content.

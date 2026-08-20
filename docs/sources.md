@@ -9,8 +9,14 @@ chunks does it produce?". That is why `recall ingest` needs no configuration.
 |---|---|---|
 | `imessage` | any `chat.db` | one conversation window, 30 minute gap |
 | `mbox` | any `*.mbox` | one email thread, allowlist filtered |
+| `twitter` | any `tweets.js` | one day of tweets, or one DM window |
 | `spotify` | `*Streaming_History_Audio*.json` | one month, with detail inside |
+| `health` | `export.xml`, or the `export.zip` around it | one month of workouts |
 | `files` | a `documents/` directory | paragraph split with overlap |
+
+`health` opens `export.xml` only. The FHIR clinical records that Apple ships
+in the same export are never read, and `clinical-records` is excluded from the
+catch-all as well, so indexing medical data stays a deliberate choice.
 
 Drop any `*.vcf` under the data directory as well. It is not a source and
 produces no chunks; every adapter uses it to show contact names instead of

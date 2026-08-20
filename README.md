@@ -48,7 +48,9 @@ each adapter recognises its own files.
 |---|---|---|
 | `chat.db` | Apple Messages | `~/Library/Messages/chat.db` on a Mac |
 | any `*.mbox` | Email | Google Takeout, Thunderbird, offlineimap |
+| a Twitter/X archive | Tweets and DMs | X, Settings, Download an archive |
 | a Spotify export folder | Listening history | Spotify privacy page |
+| `export.zip` | Apple Health workouts | Health app, profile, Export |
 | `documents/` | PDFs, Office files, text | anywhere |
 | any `*.vcf` | Contact names | Contacts app, Export vCard |
 

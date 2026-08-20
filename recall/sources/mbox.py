@@ -12,7 +12,7 @@ import datetime as dt
 import re
 from email.header import decode_header, make_header
 
-from .base import Chunk, Source
+from .base import Chunk, Source, walk
 
 KEEP_LABELS = {
     "Category Personal", "Category Purchases", "Category Travel",
@@ -126,7 +126,8 @@ class Mbox(Source):
     name = "email"
 
     def detect(self, root):
-        return sorted(p for p in root.rglob("*.mbox") if p.is_file())
+        return sorted(p for p in walk(root)
+                      if p.name.lower().endswith(".mbox") and p.is_file())
 
     def samples(self, path, limit=400):
         out = []

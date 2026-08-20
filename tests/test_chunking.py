@@ -119,3 +119,76 @@ class TestRollup(unittest.TestCase):
         recs = [{"at": "2019-01-01"}, {"at": "2018-06-01"}]
         self.assertEqual([p for p, _ in chunking.rollup(recs)],
                          ["2018-06", "2019-01"])
+
+
+class TestSplitLines(unittest.TestCase):
+    """A rollup chunk lists the events inside it, so its body is a list of
+    lines. A busy period outruns the embedding ceiling and must split on a
+    whole line: half a workout, or half a tweet, is worse than two chunks."""
+
+    def test_lines_that_fit_stay_in_one_part(self):
+        self.assertEqual(list(chunking.split_lines(["aaa", "bbb"], 100)),
+                         [["aaa", "bbb"]])
+
+    def test_it_splits_when_the_budget_is_reached(self):
+        parts = list(chunking.split_lines(["aaaa", "bbbb", "cccc"], 10))
+        self.assertEqual(parts, [["aaaa", "bbbb"], ["cccc"]])
+
+    def test_no_part_outruns_the_budget(self):
+        lines = [f"line {i}" * 3 for i in range(50)]
+        for part in chunking.split_lines(lines, 100):
+            self.assertLessEqual(len("\n".join(part)), 100)
+
+    def test_a_line_longer_than_the_budget_gets_its_own_part(self):
+        """Cutting inside the line would tear one event in half. A whole
+        oversized line alone is the honest failure."""
+        parts = list(chunking.split_lines(["ok", "x" * 200, "ok"], 10))
+        self.assertIn(["x" * 200], parts)
+
+    def test_it_keeps_the_original_order(self):
+        parts = list(chunking.split_lines([str(i) for i in range(20)], 12))
+        self.assertEqual([x for p in parts for x in p],
+                         [str(i) for i in range(20)])
+
+    def test_no_part_is_empty(self):
+        for part in chunking.split_lines(["a" * 30, "b" * 30], 10):
+            self.assertTrue(part)
+
+
+class TestParts(unittest.TestCase):
+    """A rollup or a session writes a header above its body. The header rides
+    on top of a body already packed to the budget, so it is what pushes a
+    chunk past the embedding ceiling. Its length must come out of the budget."""
+
+    def head(self, label):
+        return f"[2021-02, workouts{label}]"
+
+    def test_a_body_that_fits_yields_one_part_with_no_suffix(self):
+        got = list(chunking.parts(["a", "b"], 500, self.head))
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0][0], "")
+
+    def test_an_unsplit_header_carries_no_part_label(self):
+        _, text = list(chunking.parts(["a"], 500, self.head))[0]
+        self.assertEqual(text, "[2021-02, workouts]\na")
+
+    def test_split_parts_are_numbered_from_one(self):
+        got = list(chunking.parts(["x" * 40] * 20, 200, self.head))
+        self.assertGreater(len(got), 1)
+        self.assertEqual([s for s, _ in got][:2], ["#1", "#2"])
+
+    def test_a_split_header_says_which_part_it_is(self):
+        got = list(chunking.parts(["x" * 40] * 20, 200, self.head))
+        self.assertIn("part 2", got[1][1])
+
+    def test_no_part_exceeds_the_budget(self):
+        for line_len in (1, 3, 9, 40, 150):
+            with self.subTest(line_len=line_len):
+                for _, text in chunking.parts(["x" * line_len] * 400, 300,
+                                              self.head):
+                    self.assertLessEqual(len(text), 300)
+
+    def test_every_line_survives_in_order(self):
+        lines = [str(i) for i in range(50)]
+        got = [t.split("\n")[1:] for _, t in chunking.parts(lines, 60, self.head)]
+        self.assertEqual([x for p in got for x in p], lines)

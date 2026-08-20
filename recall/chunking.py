@@ -77,6 +77,48 @@ def split_to_budget(text, budget):
     return out
 
 
+def split_lines(lines, budget):
+    """Group lines into parts that each fit the budget.
+
+    A rollup chunk lists its events one per line. Splitting inside a line
+    tears one event in half, so a line longer than the budget goes on its
+    own part instead.
+    """
+    part, size = [], 0
+    for line in lines:
+        n = len(line) + 1
+        if part and size + n > budget:
+            yield part
+            part, size = [], 0
+        part.append(line)
+        size += n
+    if part:
+        yield part
+
+
+# Reserved so a numbered header never outgrows the room measured for it.
+PART_LABEL_SAMPLE = ", part 999"
+
+
+def parts(lines, budget, head):
+    """Split lines into chunk bodies under a header, numbering the parts.
+
+    `head` builds the header from a part label. Its length comes out of the
+    budget, because a header rides on top of a body already packed full and
+    is what pushes a chunk past the embedding ceiling.
+
+    Yields (ref_suffix, text). A body that fits yields an empty suffix, so a
+    period that needs no split keeps the stable ref it already had.
+    """
+    room = max(budget - len(head(PART_LABEL_SAMPLE)) - 1, 1)
+    groups = list(split_lines(lines, room))
+    single = len(groups) == 1
+    for i, group in enumerate(groups, start=1):
+        label = "" if single else f", part {i}"
+        yield ("" if single else f"#{i}",
+               head(label) + "\n" + "\n".join(group))
+
+
 def pack(records, budget, text_of=lambda r: r.get("text") or ""):
     """Group records into batches under the budget, splitting any that alone
     exceed it. Yields lists of records."""

@@ -9,14 +9,17 @@ import re
 import subprocess
 import zipfile
 
-from .base import Chunk, Source
+from .base import Chunk, Source, walk
 
 TEXT_EXT = {".txt", ".md", ".markdown", ".rst", ".csv", ".log", ".json"}
 OFFICE_EXT = {".docx", ".pptx", ".xlsx"}
 
 # Segment matches survive a reorganised tree; a rooted prefix does not.
+# clinical-records holds the FHIR medical records that ship inside an
+# Apple Health export. Indexing those must be a deliberate choice.
 SKIP_SEGMENTS = {"node_modules", ".git", "venv", ".venv", "__pycache__",
-                 "site-packages", "Caches", "cache", "books"}
+                 "site-packages", "Caches", "cache", "books",
+                 "clinical-records"}
 SKIP_HINTS = re.compile(r"(z-library|libgen|annas-archive|\(ebook\))", re.I)
 MAX_BYTES = 25 * 1024 * 1024
 
@@ -87,8 +90,8 @@ class Files(Source):
         return [docs] if docs.is_dir() else []
 
     def _paths(self, path):
-        for p in sorted(path.rglob("*")):
-            if not p.is_file() or not keep(p):
+        for p in walk(path):
+            if not keep(p) or not p.is_file():
                 continue
             if p.stat().st_size > MAX_BYTES:
                 continue
