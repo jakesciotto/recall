@@ -27,7 +27,7 @@ class Spotify(Source):
     def samples(self, path):
         return []          # rollup chunks are bounded by construction
 
-    def chunks(self, path, budget):
+    def chunks(self, path, budget, contacts=None):
         plays = []
         for f in sorted(glob.glob(os.path.join(str(path), "**",
                                                "*Audio*.json"), recursive=True)):

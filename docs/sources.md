@@ -12,6 +12,11 @@ chunks does it produce?". That is why `recall ingest` needs no configuration.
 | `spotify` | `*Streaming_History_Audio*.json` | one month, with detail inside |
 | `files` | a `documents/` directory | paragraph split with overlap |
 
+Drop any `*.vcf` under the data directory as well. It is not a source and
+produces no chunks; every adapter uses it to show contact names instead of
+phone numbers and email addresses. On one corpus this named 52 percent of all
+chunks.
+
 ## Writing one
 
 ```python
@@ -30,7 +35,9 @@ class Journal(Source):
         # overrun the context.
         return [p.read_text()[:20000] for p in sorted(path.glob("*.md"))[:8]]
 
-    def chunks(self, path, budget):
+    def chunks(self, path, budget, contacts=None):
+        # `contacts` maps a phone or email to a name. Put the name in the
+        # TEXT and keep the raw identifier in `participants`.
         for p in sorted(path.glob("*.md")):
             yield Chunk(
                 ref=f"journal:{p.stem}",     # STABLE across runs

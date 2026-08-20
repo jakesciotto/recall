@@ -6,7 +6,7 @@ vector index is built last so the load does not pay index maintenance.
 
 import sys
 
-from . import chunking, db, embed as embedding
+from . import chunking, contacts as contacts_mod, db, embed as embedding
 from .sources import detect_all
 
 
@@ -23,6 +23,12 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
     known = db.existing_refs(conn)
     log(f"{len(known):,} chunks already stored")
 
+    # Loaded once and handed to every adapter. Drop a .vcf under the data
+    # directory and names appear; leave it out and nothing changes.
+    contacts = contacts_mod.load_all(root)
+    if contacts:
+        log(f"{len(contacts):,} contacts loaded; participants will show names")
+
     found = detect_all(root)
     if not found:
         log(f"no recognised sources under {root}")
@@ -34,7 +40,7 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
         budget = chunking.calibrate(adapter.samples(path))
         log(f"[{adapter.name}] budget {budget:,} chars per chunk")
 
-        pending = [c for c in adapter.chunks(path, budget)
+        pending = [c for c in adapter.chunks(path, budget, contacts)
                    if (c.ref if hasattr(c, "ref") else c["ref"]) not in known]
         log(f"[{adapter.name}] {len(pending):,} new chunks")
         if not pending:

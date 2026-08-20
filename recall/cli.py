@@ -105,6 +105,7 @@ def cmd_doctor(args):
 
     data = pathlib.Path(args.data or config.DATA_DIR)
     if data.is_dir():
+        from . import contacts as contacts_mod
         from .sources import detect_all
         found = detect_all(data)
         if found:
@@ -112,6 +113,13 @@ def cmd_doctor(args):
         else:
             print(f"  warn  no recognised sources under {data}")
             print("          drop an export in and re-run; see docs/sources.md")
+        names = contacts_mod.load_all(data)
+        if names:
+            _ok("contacts", f"{len(names):,} names; participants will show them")
+        else:
+            print("  note  no .vcf found; participants stay as phone numbers")
+            print("          export your address book as vCard into the data "
+                  "directory")
     else:
         _bad("data directory missing", str(data))
         problems += 1

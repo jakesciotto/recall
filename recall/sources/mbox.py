@@ -168,8 +168,10 @@ class Mbox(Source):
                 })
         return threads
 
-    def chunks(self, path, budget):
+    def chunks(self, path, budget, contacts=None):
         from ..chunking import pack
+        from ..naming import label
+        contacts = contacts or {}
         for tid, msgs in sorted(self._kept(path).items()):
             msgs.sort(key=lambda m: m["at"] or "")
             first = msgs[0]
@@ -178,7 +180,8 @@ class Mbox(Source):
             who = sorted({m["sender"] for m in msgs if m["sender"]})
             for i, part in enumerate(pack(msgs, budget), start=1):
                 body = "\n\n".join(
-                    f"{m['sender']} ({(m['at'] or '')[:10]}): {m['text']}"
+                    f"{label(m['sender'], contacts)} "
+                    f"({(m['at'] or '')[:10]}): {m['text']}"
                     for m in part)
                 multi = len(msgs) > len(part)
                 yield Chunk(

@@ -40,6 +40,12 @@ class Source:
         """Paths under `root` this adapter can ingest. Empty means absent."""
         raise NotImplementedError
 
-    def chunks(self, path, budget):
-        """Yield Chunk objects. `budget` is the calibrated character budget."""
+    def chunks(self, path, budget, contacts=None):
+        """Yield Chunk objects.
+
+        `budget` is the calibrated character budget. `contacts` maps a phone
+        or email to a display name; put the name in the TEXT and keep the raw
+        identifier in `participants`, which is the join key for the next
+        contacts update.
+        """
         raise NotImplementedError

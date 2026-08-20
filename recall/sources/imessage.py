@@ -91,9 +91,14 @@ class IMessage(Source):
         rows.sort(key=lambda r: len(r["text"]), reverse=True)
         return [r["text"] for r in rows[:8]]
 
-    def chunks(self, path, budget):
-        from ..chunking import sessions
+    def chunks(self, path, budget, contacts=None):
         rows, names = self._rows(path)
+        yield from self._windows(rows, names, contacts)
+
+    def _windows(self, rows, names, contacts):
+        from ..chunking import sessions
+        from ..naming import header, label
+        contacts = contacts or {}
         for window in sessions(rows, SESSION_GAP_S, MAX_TURNS,
                                key=lambda r: r["thread"],
                                when=lambda r: r["at"]):
@@ -102,13 +107,14 @@ class IMessage(Source):
             when = dt.datetime.fromtimestamp(
                 first["at"], dt.timezone.utc).isoformat().replace("+00:00", "Z")
             name = names.get(first["thread"])
-            label = f'"{name}" with ' if name else "with "
+            group = f'"{name}" with ' if name else "with "
             body = "\n".join(
-                f"{'me' if r['mine'] else (r['handle'] or 'them')}: {r['text']}"
+                f"{'me' if r['mine'] else label(r['handle'] or 'them', contacts)}"
+                f": {r['text']}"
                 for r in window)
             yield Chunk(
                 ref=f"message:{first['rowid']}",
-                text=f"[{when[:10]}, {label}{', '.join(who) or 'unknown'}]\n{body}",
+                text=f"[{when[:10]}, {group}{header(who, contacts)}]\n{body}",
                 source=self.name,
                 occurred_at=when,
                 date_confidence="exact",

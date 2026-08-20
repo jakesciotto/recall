@@ -104,7 +104,7 @@ class Files(Source):
         texts.sort(key=len, reverse=True)
         return texts[:8]
 
-    def chunks(self, path, budget):
+    def chunks(self, path, budget, contacts=None):
         import datetime as dt
         import hashlib
         for p in self._paths(path):

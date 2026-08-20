@@ -50,6 +50,7 @@ each adapter recognises its own files.
 | any `*.mbox` | Email | Google Takeout, Thunderbird, offlineimap |
 | a Spotify export folder | Listening history | Spotify privacy page |
 | `documents/` | PDFs, Office files, text | anywhere |
+| any `*.vcf` | Contact names | Contacts app, Export vCard |
 
 `recall doctor` lists what it found. Adding a source means writing one small
 class; see [docs/sources.md](docs/sources.md).
@@ -74,6 +75,8 @@ because its absence broke a real run. They are written up in
   indistinguishable from an invented one.
 - **Re-runs are cheap.** Identity is stable, so re-ingesting costs only what
   actually changed. A failed twelve hour run resumes instead of restarting.
+- **People have names.** Drop in a vCard and participants stop being phone
+  numbers. On one corpus that named 52 percent of every chunk stored.
 
 ## Asking from a browser or another app
 

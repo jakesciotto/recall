@@ -84,6 +84,30 @@ what makes a re-run cheap and a resume possible. When one budget change
 re-split some threads, the reload embedded 1,300 chunks and skipped 21,354
 untouched. An unstable ref turns every re-run into a full re-embed.
 
+## Naming people
+
+**Export your address book from wherever it actually lives.** The same corpus
+matched 8 percent of chunks from one provider's contact export and **52
+percent** from another. The thin one was a stale partial copy, and it did not
+contain the single most frequent number in the corpus, which appeared in
+73,076 chunks on its own. Measure a contact export against the corpus before
+trusting it.
+
+**Put the name in the chunk text, and keep the raw identifier as the join
+key.** Replacing a phone number with a display name makes the next contacts
+update impossible, because there is nothing left to match on. Text also gets
+full-text search for free where a metadata column does not, because `tsv` is
+generated from `text`.
+
+**Predict the affected count from the database first, then reconcile.** One
+rename pass regenerated 76,679 changed chunks against a predicted 122,501.
+The 46,569 gap was a second chunk builder for attachments, which carried the
+same participant lists but was never given the contact map. Without the
+prediction the pass would have shipped silently missing a third of its work.
+
+**Sort the labels.** Unstable ordering makes an unchanged chunk look changed,
+and it re-embeds for nothing.
+
 ## Retrieval
 
 **Hybrid always.** Pure vector search underperforms on a personal archive
