@@ -1,7 +1,7 @@
 import datetime as dt
 import unittest
 
-from recall import retrieve
+from recall import db, retrieve
 
 TODAY = dt.date(2026, 8, 17)
 
@@ -92,3 +92,104 @@ class TestSQLShape(unittest.TestCase):
         """Asymmetric embedding models want the instruction on the query, not
         baked into every stored document."""
         self.assertTrue(retrieve.QUERY_PREFIX.startswith("Instruct:"))
+
+
+
+class Cursor:
+    """Records every statement and answers the two shapes recall asks for."""
+
+    def __init__(self, log, echo=None):
+        self.log = log
+        self.echo = echo
+        self.result = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.log.append((sql, params))
+        if "set_config" in sql:
+            # Postgres returns the value it applied, which is what makes the
+            # read-back check possible.
+            self.result = [self.echo if self.echo is not None else params[0]]
+        else:
+            self.result = [[]]
+
+    def fetchone(self):
+        return self.result
+
+
+class Conn:
+    def __init__(self, echo=None):
+        self.log = []
+        self.echo = echo
+
+    def cursor(self):
+        return Cursor(self.log, self.echo)
+
+    def statements(self):
+        return [sql for sql, _ in self.log]
+
+
+class TestSearchWidth(unittest.TestCase):
+    """pgvector caps the candidate list at hnsw.ef_search, default 40, so a
+    pool of 50 fuses on 25 rows and raises nothing. Measured: 25 rows at ef
+    40, 50 rows at ef 100, asking for 50 both times."""
+
+    def test_the_default_pool_clears_the_floor(self):
+        self.assertGreaterEqual(retrieve.search_width(retrieve.POOL), 100)
+
+    def test_a_small_pool_still_gets_the_floor(self):
+        self.assertEqual(retrieve.search_width(1), 100)
+
+    def test_the_width_follows_a_larger_pool(self):
+        """A fixed default only moves the threshold. The next caller that
+        raises the pool would meet the same bug one level up."""
+        self.assertEqual(retrieve.search_width(200), 400)
+
+    def test_the_width_always_exceeds_the_pool(self):
+        """The property under test, swept rather than sampled: one fixture
+        cannot show that a bound holds."""
+        for pool in [1, 8, 40, 49, 50, 51, 100, 500, 5000]:
+            with self.subTest(pool=pool):
+                self.assertGreater(retrieve.search_width(pool), pool)
+
+
+class TestSetSearchWidth(unittest.TestCase):
+    def test_it_sets_the_value_it_was_given(self):
+        conn = Conn()
+        self.assertEqual(db.set_search_width(conn, 250), 250)
+        self.assertEqual(conn.log[0][1], ("250",))
+
+    def test_it_reads_the_applied_value_back(self):
+        """A check that reads only success is the fault this guards against."""
+        conn = Conn(echo="40")
+        with self.assertRaises(RuntimeError) as caught:
+            db.set_search_width(conn, 250)
+        self.assertIn("40", str(caught.exception))
+
+
+class TestSearchWidensBeforeItQueries(unittest.TestCase):
+    def run_search(self, **kw):
+        conn = Conn()
+        retrieve.search("what did I write in 2018", conn,
+                        lambda text: [0.0] * 4, today=TODAY, **kw)
+        return conn
+
+    def test_it_widens_the_candidate_list(self):
+        self.assertTrue(any("set_config" in s
+                            for s in self.run_search().statements()))
+
+    def test_it_widens_before_the_dense_query(self):
+        """Order is the whole point. Setting it afterwards changes nothing."""
+        stmts = self.run_search().statements()
+        widen = next(i for i, s in enumerate(stmts) if "set_config" in s)
+        dense = next(i for i, s in enumerate(stmts) if "<=>" in s)
+        self.assertLess(widen, dense)
+
+    def test_the_width_matches_the_pool_the_caller_asked_for(self):
+        conn = self.run_search(pool=300)
+        self.assertEqual(conn.log[0][1], (str(retrieve.search_width(300)),))

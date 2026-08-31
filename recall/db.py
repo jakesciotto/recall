@@ -92,6 +92,32 @@ def counts(conn):
         return cur.fetchall()
 
 
+def set_search_width(conn, width):
+    """Widen the HNSW candidate list on this connection, then confirm it.
+
+    pgvector caps the candidate list at hnsw.ef_search, default 40, so a
+    query that asks for 50 rows returns fewer and raises nothing. See
+    retrieve.EF_FLOOR for the measurement.
+
+    It reads the applied value back rather than trusting that the statement
+    ran. A check that reads only success is the exact fault this guards
+    against, and set_config returns what it applied, so the check is free.
+
+    Session scope, not SET LOCAL. SET LOCAL outside a transaction block does
+    nothing and only warns, which would restore the silent shortfall in the
+    one case hardest to notice.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT set_config('hnsw.ef_search', %s, false)",
+                    (str(int(width)),))
+        applied = cur.fetchone()[0]
+    if int(applied) != int(width):
+        raise RuntimeError(
+            f"asked Postgres for hnsw.ef_search={int(width)}, "
+            f"it reports {applied}")
+    return int(applied)
+
+
 def fetch(conn, sql, params=None):
     """Rows as dicts. Postgres builds the JSON; chunk text contains newlines,
     commas and quotes, so no delimiter parse is safe."""

@@ -172,6 +172,27 @@ relative phrase. A bare month name does not fire, because "march" is also a
 verb. A four-digit run inside a phone number does not fire, because phone
 numbers contain things like 2026.
 
+**pgvector returns fewer rows than your LIMIT, and calls it success.**
+`hnsw.ef_search` caps the HNSW candidate list at 40 by default, whatever
+`LIMIT` asks for. A short result set is not an error, so a query written
+`ORDER BY embedding <=> $1 LIMIT 50` returns 25 rows and raises nothing. The
+dense arm of a hybrid retriever then fuses on half the candidates it thinks
+it has, and the code, the plan and the logs all still say 50. Measured on a
+249k-row corpus: 25 rows at ef 40, 50 rows at ef 100, asking for 50 each
+time. Diagnose it by counting rows returned against rows requested. Reading
+the query cannot show you this.
+
+Fix it in the code, not only in the database. `ALTER DATABASE ... SET
+hnsw.ef_search` is a reasonable floor, but a fixed default only moves the
+threshold: the next caller with a bigger pool under-fills again, which is the
+same bug one level up. So the width follows the pool the caller asked for.
+Two details carry their own reasons. `set_config` runs at session scope
+rather than `SET LOCAL`, because `SET LOCAL` outside a transaction block does
+nothing and only warns, which would restore the silent shortfall in the case
+hardest to notice. And recall reads the applied value back, because
+`set_config` returns what it set, so checking the payload instead of the
+statement costs nothing.
+
 **Citations are mandatory, and an empty retrieval must forbid an answer.**
 Send the bare question through and the model answers from its weights.
 Nothing downstream can distinguish that from real recall about the user's own

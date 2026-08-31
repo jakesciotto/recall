@@ -12,6 +12,16 @@ RRF_K = 60
 POOL = 50
 TOP_K = 8
 
+# pgvector caps the HNSW candidate list at hnsw.ef_search, which defaults to
+# 40, no matter how many rows LIMIT asks for. A short result set is not an
+# error, so a pool of 50 quietly fuses on 25 and nothing anywhere reports the
+# shortfall. Measured on a 249k-row corpus: 25 rows at ef 40, 50 at ef 100.
+#
+# The width follows the pool rather than sitting at a fixed number. A fixed
+# default only moves the threshold, so the next caller that raises the pool
+# meets the same bug one level up.
+EF_FLOOR = 100
+
 # Qwen3-style embedding models are asymmetric: the instruction belongs on the
 # QUERY at search time, never baked into every stored document.
 QUERY_PREFIX = ("Instruct: Given a search query, retrieve relevant passages\n"
@@ -116,6 +126,11 @@ def sparse_sql(where, pool):
             f"LIMIT {int(pool)}")
 
 
+def search_width(pool):
+    """The HNSW candidate list a pool of this size needs."""
+    return max(int(pool) * 2, EF_FLOOR)
+
+
 def vector_literal(vec):
     return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
 
@@ -130,6 +145,7 @@ def search(question, conn, embedder, k=TOP_K, pool=POOL, source=None,
     where, params = where_clause(dates, source)
 
     vec = vector_literal(embedder(QUERY_PREFIX + question))
+    db.set_search_width(conn, search_width(pool))
     dense = db.fetch(conn, dense_sql(where, pool), params + [vec])
     sparse = db.fetch(conn, sparse_sql(where, pool),
                       params + [question, question])
