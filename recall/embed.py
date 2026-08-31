@@ -12,6 +12,21 @@ import urllib.request
 from . import config
 
 
+class EmbeddingMisconfigured(Exception):
+    """The server answered, but not with what this configuration expects.
+
+    A wrong dimension is a setup fault, not oversized input. It must never
+    reach the bisect: shrinking the request cannot change the answer, so the
+    bisect drops every chunk one at a time and the log blames the data. That
+    is the 502 lesson wearing new clothes, and swapping the embedding model
+    is an advertised thing to do.
+
+    It inherits Exception, NOT RuntimeError, on purpose. The retry paths in
+    embed_safe catch RuntimeError, and a base class they catch would let one
+    of them swallow this silently.
+    """
+
+
 class EmbeddingServerDown(RuntimeError):
     """The server never came back. Stopping beats draining the corpus into a
     drop list, because stored work survives and the next run resumes."""
@@ -31,10 +46,16 @@ def embed(texts, timeout=300):
         data = json.load(r)["data"]
     vecs = [d["embedding"] for d in sorted(data, key=lambda d: d["index"])]
     if len(vecs) != len(texts):
-        raise RuntimeError(f"asked for {len(texts)} embeddings, got {len(vecs)}")
+        raise EmbeddingMisconfigured(
+            f"asked for {len(texts)} embeddings, got {len(vecs)}; "
+            f"the server at {config.EMBED_URL} did not answer the whole batch")
     for v in vecs:
         if len(v) != config.EMBED_DIMS:
-            raise RuntimeError(f"expected {config.EMBED_DIMS} dims, got {len(v)}")
+            raise EmbeddingMisconfigured(
+                f"the model returns {len(v)} dimensions, RECALL_EMBED_DIMS "
+                f"says {config.EMBED_DIMS}; set it to {len(v)} and re-create "
+                f"the chunk table, whose vector column is fixed at the old "
+                f"size")
     return vecs
 
 

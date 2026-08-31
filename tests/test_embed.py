@@ -1,3 +1,5 @@
+import io
+import json
 import unittest
 import urllib.error
 from unittest import mock
@@ -109,3 +111,70 @@ class TestBatches(unittest.TestCase):
         src = items(120, 50)
         flat = [i for b in embed.batches(src, 1000) for i in b]
         self.assertEqual([i["id"] for i in flat], [i["id"] for i in src])
+
+
+def response(vectors):
+    """A fake endpoint body holding `vectors` in the server's own shape."""
+    return io.BytesIO(json.dumps(
+        {"data": [{"index": i, "embedding": v}
+                  for i, v in enumerate(vectors)]}).encode())
+
+
+class TestDimensionFault(unittest.TestCase):
+    """The 502 lesson in a new dress. A wrong RECALL_EMBED_DIMS is a setup
+    fault, not oversized input, but it reaches embed_safe as an ordinary
+    error. The bisect then drops every chunk one at a time and the log blames
+    the data. The README invites the fault by advertising a model swap, and
+    swapping the model changes the dimension."""
+
+    def test_a_wrong_dimension_is_a_setup_fault(self):
+        with mock.patch.object(embed.urllib.request, "urlopen",
+                               return_value=response([[0.0] * 768])):
+            with self.assertRaises(embed.EmbeddingMisconfigured):
+                embed.embed(["a"])
+
+    def test_the_message_names_the_setting_to_change(self):
+        with mock.patch.object(embed.urllib.request, "urlopen",
+                               return_value=response([[0.0] * 768])):
+            with self.assertRaises(embed.EmbeddingMisconfigured) as caught:
+                embed.embed(["a"])
+        self.assertIn("RECALL_EMBED_DIMS", str(caught.exception))
+
+    def test_a_short_response_is_a_setup_fault_too(self):
+        """Fewer vectors than inputs cannot be fixed by sending less."""
+        with mock.patch.object(embed.urllib.request, "urlopen",
+                               return_value=response([[0.0] * 1024])):
+            with self.assertRaises(embed.EmbeddingMisconfigured):
+                embed.embed(["a", "b"])
+
+    def test_a_correct_dimension_still_embeds(self):
+        with mock.patch.object(embed.urllib.request, "urlopen",
+                               return_value=response([[0.5] * 1024])):
+            self.assertEqual(embed.embed(["a"]), [[0.5] * 1024])
+
+    def test_it_stops_the_run_instead_of_dropping_the_corpus(self):
+        dropped = []
+        with mock.patch.object(embed, "embed",
+                               side_effect=embed.EmbeddingMisconfigured("x")):
+            with self.assertRaises(embed.EmbeddingMisconfigured):
+                embed.embed_safe(items(8), dropped.append,
+                                 _ready=lambda: True)
+        self.assertEqual(dropped, [], "a setup fault must drop nothing")
+
+    def test_it_stops_even_when_the_fault_appears_after_a_restart(self):
+        """The server can come back running a different model, so the retry
+        inside the 502 path must not swallow the fault either."""
+        calls = {"n": 0}
+
+        def swaps_model(texts, timeout=300):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise http502()
+            raise embed.EmbeddingMisconfigured("x")
+
+        dropped = []
+        with mock.patch.object(embed, "embed", swaps_model):
+            with self.assertRaises(embed.EmbeddingMisconfigured):
+                embed.embed_safe(items(8), dropped.append,
+                                 _ready=lambda: True)
+        self.assertEqual(dropped, [])

@@ -60,14 +60,16 @@ def cmd_doctor(args):
           print("          try: docker compose up -d")
           problems += 1
 
+    # Embed one string rather than reach the port. A 200 carrying the wrong
+    # vector length is the fault that drains a corpus, and it answers a bare
+    # reachability check perfectly.
+    from . import embed as embedding
     try:
-        req = urllib.request.Request(
-            config.EMBED_URL,
-            json.dumps({"model": config.EMBED_MODEL,
-                        "input": ["ping"]}).encode(),
-            {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60):
-            _ok("embedding server", config.EMBED_URL)
+        vec = embedding.embed(["ping"], timeout=60)[0]
+        _ok("embedding server", f"{config.EMBED_URL}  {len(vec)} dims")
+    except embedding.EmbeddingMisconfigured as e:
+        _bad("embedding server", str(e))
+        problems += 1
     except Exception as e:
         _bad("embedding server", f"{config.EMBED_URL}  {type(e).__name__}")
         print("          try: docker compose up -d")

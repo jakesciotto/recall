@@ -58,9 +58,11 @@ Add it to `ADAPTERS` in `recall/sources/__init__.py`. Nothing else changes.
 
 ## Three rules
 
-1. **`ref` must be stable and unique.** The loader skips refs it already
-   holds. That is what makes a re-run cheap and a resume possible. An
-   unstable ref re-embeds your whole corpus; a colliding one drops data.
+1. **`ref` must be stable and unique.** The loader skips a ref it already
+   holds whose text has not changed, which is what makes a re-run cheap and
+   a resume possible. It compares the text digest rather than the ref alone,
+   so a chunk you now write differently still reloads. An unstable ref
+   re-embeds your whole corpus; a colliding one drops data.
 2. **Respect the budget.** It is calibrated to your embedding server. Use
    `recall.chunking.pack` or `split_to_budget` rather than assuming a size.
 3. **Be honest about dates.** `date_confidence` travels with `occurred_at`

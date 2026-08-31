@@ -66,11 +66,19 @@ def build_vector_index(conn):
         cur.execute("ANALYZE chunk")
 
 
-def existing_refs(conn):
-    """Refs already stored. Re-runs skip these, so adapter refs must be stable."""
+def stored_digests(conn):
+    """{ref: md5 of the stored text}.
+
+    A re-run skips a ref whose text has not moved, which is what makes it
+    cheap. It compares the digest rather than the ref alone, so a chunk the
+    source now writes differently still reloads.
+
+    Postgres computes the md5 so the text itself never crosses the wire: a
+    real corpus holds gigabytes of it.
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT ref FROM chunk")
-        return {r[0] for r in cur}
+        cur.execute("SELECT ref, md5(text) FROM chunk")
+        return {r[0]: r[1] for r in cur}
 
 
 def upsert(conn, rows):

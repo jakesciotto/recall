@@ -23,6 +23,23 @@ loss.
 Related: **502 means the backend is gone, 400 and 500 mean it rejected this
 specific request.** The first is worth retrying, the second is not.
 
+**A wrong vector dimension is that same trap in new clothes.** The server
+answers HTTP 200 and returns vectors of the wrong length, because the model
+running is not the model configured. That reaches the retry layer as an
+ordinary error, so the bisect splits the batch down to single items and
+writes each one off as bad input. Eight chunks became eight drops and thirty
+wasted requests, and a real corpus becomes a total loss under a plausible
+"dropped N" line. Shrinking a request cannot change the answer, so a setup
+fault has to stop the run rather than enter the retry path.
+`recall.embed.EmbeddingMisconfigured` inherits Exception and not
+RuntimeError for exactly that reason: the retry paths catch RuntimeError,
+and a shared base class lets one of them swallow the fault.
+
+**The check that should have caught it passed.** `recall doctor` posted to
+the embedding server and reported success on HTTP 200, without ever reading
+the vector it got back. That is the green-target lesson again in a second
+place. Doctor now embeds one string and prints the dimension it measured.
+
 **A pipeline piped through `tail` reports the exit code of `tail`.** So
 `timeout 3000 job | tail -8` returns 0 even when `timeout` killed the job at
 50 minutes. One load looked finished, with a clean exit and a plausible final
@@ -79,10 +96,19 @@ minutes, 39 percent of one export's sessions came out as a single short
 message, which embeds to noise. Measured across five gap values, a day put
 the median chunk where live chat's 30 minutes put it.
 
-**Identity must be stable.** The loader skips refs it already holds, which is
-what makes a re-run cheap and a resume possible. When one budget change
+**Identity must be stable.** The loader skips a stored ref whose text has not
+moved, which is what makes a re-run cheap and a resume possible. When one budget change
 re-split some threads, the reload embedded 1,300 chunks and skipped 21,354
 untouched. An unstable ref turns every re-run into a full re-embed.
+
+**A stable ref is not the same as unchanged text, and skipping on the ref
+alone conflates the two.** A contact map added after the first ingest
+rewrites the text of chunks whose refs never move, so every one of them read
+as already held and nothing reloaded. The README promised the opposite. The
+loader now compares an md5 of the text, which Postgres computes so the
+corpus never crosses the wire, and it counts new and rewritten chunks
+separately. Re-runs stay exactly as cheap, because an unchanged chunk still
+costs one hash comparison and no embedding.
 
 **A window bounds turns, not characters.** A twenty turn session and a busy
 month are both unbounded in size. One oversized chunk does not fail loudly:
