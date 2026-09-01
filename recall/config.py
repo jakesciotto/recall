@@ -22,6 +22,10 @@ EMBED_DIMS = int(_env("RECALL_EMBED_DIMS", "1024"))
 # not use it. Point this at any OpenAI-compatible endpoint you run.
 CHAT_URL = _env("RECALL_CHAT_URL", "")
 CHAT_MODEL = _env("RECALL_CHAT_MODEL", "")
+# The corpus labels the user's own lines "me:". Set this to the user's name
+# and the prompt relabels those lines; storage never changes. See
+# docs/answering.md.
+USER_LABEL = _env("RECALL_USER_LABEL", "")
 
 TOKENIZE_URL = _env("RECALL_TOKENIZE_URL", "")
 

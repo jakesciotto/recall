@@ -53,6 +53,30 @@ bare question instead lets the model answer from its own weights, and nothing
 downstream can distinguish that from real recall about your life. It is the
 worst failure this kind of system has, so recall refuses to allow it.
 
+## Tell the model your name
+
+Message sources label your own lines `me:`. That label binds the subject to
+you. Asked who did a half ironman, a model answered "the user (me)" from a
+source where the user was congratulating somebody else. Relabelling that one
+line with a name, and changing nothing else, made the same model name the
+right person.
+
+```bash
+RECALL_USER_LABEL=Ada
+```
+
+With that set, every `me:` line becomes `Ada:` in the prompt, and the system
+prompt says who Ada is. Storage never changes: every embedding was computed
+from the stored text, and rewriting the corpus would make every vector stale
+for no retrieval gain. The relabel anchors to the start of a line, so "tell
+me: what time" is untouched.
+
+The prompt also tells the model, whether or not a name is set, that a speaker
+often talks ABOUT somebody else and that another person's experience must
+never be reported as yours. That instruction removed one misattribution in a
+measured case and left another in place, so treat it as a reduction and not a
+fix. See [lessons.md](lessons.md).
+
 ## Running a model beside the embedding server
 
 If you run both on one machine, size them together. Weights on a
