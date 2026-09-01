@@ -7,6 +7,7 @@ comparable numbers. See docs/lessons.md.
 import collections
 import datetime as dt
 import re
+import time
 
 RRF_K = 60
 POOL = 50
@@ -112,15 +113,21 @@ def where_clause(dates, source):
 
 
 def dense_sql(where, pool):
-    return (f"SELECT {COLUMNS} FROM chunk{where} "
+    """The vector binds twice: once selected as the distance, once in the
+    ORDER BY. The ORDER BY keeps the exact expression the HNSW index was
+    built on, so the plan stays an index scan."""
+    return (f"SELECT {COLUMNS}, embedding <=> %s::vector AS distance "
+            f"FROM chunk{where} "
             f"ORDER BY embedding <=> %s::vector LIMIT {int(pool)}")
 
 
 def sparse_sql(where, pool):
     """plainto_tsquery, not to_tsquery: to_tsquery rejects ordinary
-    punctuation."""
+    punctuation. The question binds three times: rank, filter, order."""
     join = " AND " if where else " WHERE "
-    return (f"SELECT {COLUMNS} FROM chunk{where}{join}"
+    return (f"SELECT {COLUMNS}, "
+            f"ts_rank(tsv, plainto_tsquery('english', %s)) AS rank "
+            f"FROM chunk{where}{join}"
             f"tsv @@ plainto_tsquery('english', %s) "
             f"ORDER BY ts_rank(tsv, plainto_tsquery('english', %s)) DESC "
             f"LIMIT {int(pool)}")
@@ -135,22 +142,61 @@ def vector_literal(vec):
     return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
 
 
-def search(question, conn, embedder, k=TOP_K, pool=POOL, source=None,
-           today=None, dates=None):
-    """Returns (hits, date_filter)."""
+def _ms(started):
+    return int((time.monotonic() - started) * 1000)
+
+
+ARM_KEYS = ("distance", "rank")
+
+
+def search_traced(question, conn, embedder, k=TOP_K, pool=POOL, source=None,
+                  today=None, dates=None):
+    """Hybrid search that also returns what it decided on the way.
+
+    Returns (hits, date_filter, trace). The trace keeps every fused
+    candidate, not only the k that survive. Which chunks retrieval offered
+    and did NOT use is half of the offered-against-cited signal the query
+    decision log exists to measure.
+    """
     from . import db
     today = today or dt.date.today()
     if dates is None:
         dates = parse_dates(question, today)
     where, params = where_clause(dates, source)
 
+    t = time.monotonic()
     vec = vector_literal(embedder(QUERY_PREFIX + question))
-    db.set_search_width(conn, search_width(pool))
-    dense = db.fetch(conn, dense_sql(where, pool), params + [vec])
-    sparse = db.fetch(conn, sparse_sql(where, pool),
-                      params + [question, question])
+    embed_ms = _ms(t)
 
-    by_ref = {r["ref"]: r for r in list(dense) + list(sparse)}
+    db.set_search_width(conn, search_width(pool))
+    t = time.monotonic()
+    dense = list(db.fetch(conn, dense_sql(where, pool), [vec] + params + [vec]))
+    dense_ms = _ms(t)
+
+    t = time.monotonic()
+    sparse = list(db.fetch(conn, sparse_sql(where, pool),
+                           [question] + params + [question, question]))
+    sparse_ms = _ms(t)
+
+    by_ref = {r["ref"]: r for r in dense + sparse}
     fused = rrf([[r["ref"] for r in dense], [r["ref"] for r in sparse]])
-    hits = [dict(by_ref[ref], score=score) for ref, score in fused[:k]]
+    hits = [dict({c: v for c, v in by_ref[ref].items() if c not in ARM_KEYS},
+                 score=score)
+            for ref, score in fused[:k]]
+    trace = {
+        "dense": [(r["ref"], r.get("distance")) for r in dense],
+        "sparse": [(r["ref"], r.get("rank")) for r in sparse],
+        "fused": fused,
+        "dense_n": len(dense), "sparse_n": len(sparse), "fused_n": len(fused),
+        "embed_ms": embed_ms, "dense_ms": dense_ms, "sparse_ms": sparse_ms,
+    }
+    return hits, dates, trace
+
+
+def search(question, conn, embedder, k=TOP_K, pool=POOL, source=None,
+           today=None, dates=None):
+    """Returns (hits, date_filter). One path: this is search_traced with
+    the trace dropped, so a test aimed here exercises the real thing."""
+    hits, dates, _ = search_traced(question, conn, embedder, k=k, pool=pool,
+                                   source=source, today=today, dates=dates)
     return hits, dates

@@ -5,9 +5,10 @@ Requires a bearer token and fails closed: an unset token accepts nothing.
 
 import hmac
 import json
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from . import answer, config, db, render, retrieve
+from . import answer, config, db, querylog, render, retrieve
 
 MAX_K = 25
 
@@ -29,6 +30,10 @@ def sse(event, data):
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
+def _ms(started):
+    return int((time.monotonic() - started) * 1000)
+
+
 def _search(body, conn):
     question = (body.get("question") or "").strip()
     if not question:
@@ -38,10 +43,28 @@ def _search(body, conn):
     except (TypeError, ValueError):
         k = 8
     from . import embed
-    hits, dates = retrieve.search(
+    hits, dates, trace = retrieve.search_traced(
         question, conn, lambda t: embed.embed([t])[0],
         k=k, source=body.get("source"))
-    return question, hits, dates
+    return question, k, hits, dates, trace
+
+
+def _log(body, question, k, hits, dates, trace, prompt, **kw):
+    """One query decision row, written whether or not a model ran. A
+    sources-only request still made every retrieval decision worth
+    recording.
+
+    querylog.log already swallows its own faults. This second guard covers
+    a patched or replaced logger too, so no logging change can ever cost
+    the user an answer.
+    """
+    try:
+        querylog.log(client="api", question=question, k=k, pool=retrieve.POOL,
+                     source=body.get("source"), dates=dates, trace=trace,
+                     hits=hits, model_requested=config.CHAT_MODEL,
+                     prompt_chars=len(prompt), **kw)
+    except Exception:
+        pass
 
 
 def _payload(dates):
@@ -50,11 +73,16 @@ def _payload(dates):
 
 
 def handle_ask(body):
+    started = time.monotonic()
     with db.connect() as conn:
-        question, hits, dates = _search(body, conn)
+        question, k, hits, dates, trace = _search(body, conn)
     text = None
+    meta = {}
+    prompt = answer.build_prompt(question, hits)
     if not body.get("sources_only") and config.CHAT_URL:
-        text = answer.chat(answer.build_prompt(question, hits))
+        text = answer.chat(prompt, meta=meta)
+    _log(body, question, k, hits, dates, trace, prompt, answer=text,
+         meta=meta, streamed=False, total_ms=_ms(started))
     return {"question": question, "answer": text,
             "answer_blocks": render.blocks(text),
             "sources": hits, "date_filter": _payload(dates)}
@@ -66,17 +94,26 @@ def stream_ask(body):
     Retrieval is fast and generation is slow, so sources go out immediately.
     Blocks need the whole answer, so they arrive last.
     """
+    started = time.monotonic()
     with db.connect() as conn:
-        question, hits, dates = _search(body, conn)
+        question, k, hits, dates, trace = _search(body, conn)
     yield sse("sources", {"sources": hits, "date_filter": _payload(dates)})
+    prompt = answer.build_prompt(question, hits)
     if not config.CHAT_URL:
+        _log(body, question, k, hits, dates, trace, prompt, answer=None,
+             meta={}, streamed=True, total_ms=_ms(started))
         yield sse("done", {"answer": None, "answer_blocks": []})
         return
     parts = []
-    for piece in answer.chat_stream(answer.build_prompt(question, hits)):
+    first_token_ms = None
+    for piece in answer.chat_stream(prompt):
+        if first_token_ms is None:
+            first_token_ms = _ms(started)
         parts.append(piece)
         yield sse("token", {"t": piece})
     text = "".join(parts)
+    _log(body, question, k, hits, dates, trace, prompt, answer=text, meta={},
+         streamed=True, first_token_ms=first_token_ms, total_ms=_ms(started))
     yield sse("done", {"answer": text, "answer_blocks": render.blocks(text)})
 
 

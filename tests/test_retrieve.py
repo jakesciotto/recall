@@ -96,11 +96,12 @@ class TestSQLShape(unittest.TestCase):
 
 
 class Cursor:
-    """Records every statement and answers the two shapes recall asks for."""
+    """Records every statement and answers the shapes recall asks for."""
 
-    def __init__(self, log, echo=None):
+    def __init__(self, log, echo=None, rows=None):
         self.log = log
         self.echo = echo
+        self.rows = rows or {}
         self.result = None
 
     def __enter__(self):
@@ -115,6 +116,10 @@ class Cursor:
             # Postgres returns the value it applied, which is what makes the
             # read-back check possible.
             self.result = [self.echo if self.echo is not None else params[0]]
+        elif "<=>" in sql:
+            self.result = [list(self.rows.get("dense", []))]
+        elif "plainto_tsquery" in sql:
+            self.result = [list(self.rows.get("sparse", []))]
         else:
             self.result = [[]]
 
@@ -123,12 +128,13 @@ class Cursor:
 
 
 class Conn:
-    def __init__(self, echo=None):
+    def __init__(self, echo=None, dense=(), sparse=()):
         self.log = []
         self.echo = echo
+        self.rows = {"dense": dense, "sparse": sparse}
 
     def cursor(self):
-        return Cursor(self.log, self.echo)
+        return Cursor(self.log, self.echo, self.rows)
 
     def statements(self):
         return [sql for sql, _ in self.log]
@@ -193,3 +199,78 @@ class TestSearchWidensBeforeItQueries(unittest.TestCase):
     def test_the_width_matches_the_pool_the_caller_asked_for(self):
         conn = self.run_search(pool=300)
         self.assertEqual(conn.log[0][1], (str(retrieve.search_width(300)),))
+
+
+def row(ref, **extra):
+    base = {"ref": ref, "text": f"text of {ref}", "occurred_at": None,
+            "source": "messages", "path": None}
+    base.update(extra)
+    return base
+
+
+class TestSearchTraced(unittest.TestCase):
+    """The trace keeps every fused candidate, not only the k that survive.
+    Which chunks retrieval offered and did NOT use is half of the
+    offered-against-cited signal the query decision log measures."""
+
+    def conn(self):
+        return Conn(dense=[row("a", distance=0.1), row("b", distance=0.2),
+                           row("c", distance=0.3)],
+                    sparse=[row("b", rank=0.9), row("d", rank=0.5)])
+
+    def traced(self, **kw):
+        conn = self.conn()
+        hits, dates, trace = retrieve.search_traced(
+            "what happened", conn, lambda t: [0.0] * 4, k=2, today=TODAY, **kw)
+        return hits, dates, trace, conn
+
+    def test_it_returns_hits_dates_and_a_trace(self):
+        hits, dates, trace, _ = self.traced()
+        self.assertEqual(len(hits), 2)
+        self.assertEqual(dates, retrieve.NO_DATES)
+        self.assertIsInstance(trace, dict)
+
+    def test_the_trace_keeps_every_fused_candidate(self):
+        hits, _, trace, _ = self.traced()
+        self.assertEqual([r for r, _ in trace["fused"]], ["b", "a", "d", "c"])
+        self.assertEqual(len(hits), 2)
+
+    def test_each_arm_is_recorded_in_rank_order_with_its_score(self):
+        _, _, trace, _ = self.traced()
+        self.assertEqual(trace["dense"], [("a", 0.1), ("b", 0.2), ("c", 0.3)])
+        self.assertEqual(trace["sparse"], [("b", 0.9), ("d", 0.5)])
+        self.assertEqual((trace["dense_n"], trace["sparse_n"],
+                          trace["fused_n"]), (3, 2, 4))
+
+    def test_timings_are_integers(self):
+        _, _, trace, _ = self.traced()
+        for key in ("embed_ms", "dense_ms", "sparse_ms"):
+            self.assertIsInstance(trace[key], int)
+
+    def test_hits_carry_no_arm_scores(self):
+        """The API returns hits as JSON. The arm scores are for the log."""
+        hits, _, _, _ = self.traced()
+        for h in hits:
+            self.assertNotIn("distance", h)
+            self.assertNotIn("rank", h)
+            self.assertIn("score", h)
+
+    def test_search_is_the_same_path_with_the_trace_dropped(self):
+        conn = self.conn()
+        hits, dates = retrieve.search("what happened", conn,
+                                      lambda t: [0.0] * 4, k=2, today=TODAY)
+        traced, _, _, _ = self.traced()
+        self.assertEqual([h["ref"] for h in hits], [h["ref"] for h in traced])
+
+    def test_the_vector_binds_before_and_after_the_where_clause(self):
+        """The distance is selected AND ordered by, so the vector binds
+        twice, around the filter parameters. Get the order wrong and the
+        date lands where the vector should be."""
+        conn = Conn(dense=[], sparse=[])
+        retrieve.search_traced("what happened in 2018", conn,
+                               lambda t: [0.5] * 2, today=TODAY)
+        sql, params = next((s, p) for s, p in conn.log if "<=>" in s)
+        vec = retrieve.vector_literal([0.5] * 2)
+        self.assertEqual(params[0], vec)
+        self.assertEqual(params[-1], vec)
+        self.assertEqual(params[1:-1], ["2018-01-01", "2019-01-01"])

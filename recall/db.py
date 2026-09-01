@@ -28,6 +28,66 @@ CREATE INDEX IF NOT EXISTS chunk_occurred_idx ON chunk (occurred_at);
 CREATE INDEX IF NOT EXISTS chunk_source_idx   ON chunk (source);
 """
 
+# The query decision log. It lives in this database, not a separate one,
+# because query_candidate.ref must join to chunk.ref: "which sources get
+# cited, against how often they get offered" is the main tuning question,
+# and a separate database makes it impossible to ask.
+LOG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS query_log (
+  id                bigserial PRIMARY KEY,
+  asked_at          timestamptz NOT NULL DEFAULT now(),
+  client            text NOT NULL,
+  streamed          boolean NOT NULL DEFAULT false,
+  question          text NOT NULL,
+  source_filter     text,
+  k                 int NOT NULL,
+  pool              int NOT NULL,
+  date_phrase       text,
+  date_since        date,
+  date_until        date,
+  dense_n           int,
+  sparse_n          int,
+  fused_n           int,
+  model_requested   text,
+  model_resolved    text,
+  answer            text,
+  cited             int[],
+  cited_invalid     int[],
+  prompt_chars      int,
+  prompt_tokens     int,
+  completion_tokens int,
+  embed_ms          int,
+  dense_ms          int,
+  sparse_ms         int,
+  generate_ms       int,
+  first_token_ms    int,
+  total_ms          int,
+  error             text,
+  -- Human columns. Nothing automated writes these.
+  verdict           text,
+  note              text
+);
+
+-- final_rank is NULL when fusion dropped the candidate before k. Keeping
+-- the dropped ones is the point: what retrieval offered and did NOT use is
+-- half of the offered-against-cited signal.
+CREATE TABLE IF NOT EXISTS query_candidate (
+  query_id     bigint NOT NULL REFERENCES query_log(id) ON DELETE CASCADE,
+  ref          text NOT NULL,
+  dense_rank   int,
+  sparse_rank  int,
+  distance     double precision,
+  ts_rank      double precision,
+  rrf_score    double precision NOT NULL,
+  final_rank   int,
+  cited        boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (query_id, ref)
+);
+
+CREATE INDEX IF NOT EXISTS query_candidate_ref_idx ON query_candidate (ref);
+CREATE INDEX IF NOT EXISTS query_log_asked_idx ON query_log (asked_at);
+"""
+
 VECTOR_INDEX = ("CREATE INDEX IF NOT EXISTS chunk_embedding_idx ON chunk "
                 "USING hnsw (embedding vector_cosine_ops)")
 
@@ -58,6 +118,7 @@ def connect(dsn=None):
 def apply_schema(conn, dims=None):
     with conn.cursor() as cur:
         cur.execute(SCHEMA % {"dims": dims or config.EMBED_DIMS})
+        cur.execute(LOG_SCHEMA)
 
 
 def build_vector_index(conn):
@@ -90,6 +151,12 @@ def counts(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT source, count(*) FROM chunk GROUP BY 1 ORDER BY 2 DESC")
         return cur.fetchall()
+
+
+def query_log_count(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM query_log")
+        return int(cur.fetchone()[0])
 
 
 def set_search_width(conn, width):

@@ -6,6 +6,7 @@ forbids answering. See docs/lessons.md.
 
 import json
 import re
+import time
 import urllib.request
 
 from . import config
@@ -94,9 +95,21 @@ def _request(prompt, model, stream):
                                   {"Content-Type": "application/json"})
 
 
-def chat(prompt, model=None, timeout=600):
+def chat(prompt, model=None, timeout=600, meta=None):
+    """The answer text. `meta`, when given, receives what the server
+    reported: the model it resolved to, the token counts, and the wall time.
+    The query decision log records those, and the difference between the
+    model asked for and the model that answered is worth having."""
+    started = time.monotonic()
     with urllib.request.urlopen(_request(prompt, model, False), timeout=timeout) as r:
-        return json.load(r)["choices"][0]["message"]["content"]
+        data = json.load(r)
+    if meta is not None:
+        usage = data.get("usage") or {}
+        meta["model_resolved"] = data.get("model")
+        meta["prompt_tokens"] = usage.get("prompt_tokens")
+        meta["completion_tokens"] = usage.get("completion_tokens")
+        meta["generate_ms"] = int((time.monotonic() - started) * 1000)
+    return data["choices"][0]["message"]["content"]
 
 
 def chat_stream(prompt, model=None, timeout=600):

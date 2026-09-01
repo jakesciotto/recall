@@ -79,6 +79,11 @@ because its absence broke a real run. They are written up in
   actually changed. A failed twelve hour run resumes instead of restarting.
 - **People have names.** Drop in a vCard and participants stop being phone
   numbers. On one corpus that named 52 percent of every chunk stored.
+- **Every question is logged, locally.** What retrieval offered, what the
+  model cited, and how long each stage took, in the same database as the
+  corpus. Nothing new leaves the box. The first real query through it found
+  the dense arm returning half the candidates it was asked for.
+  `RECALL_QUERY_LOG=0` turns it off.
 
 ## Asking from a browser or another app
 

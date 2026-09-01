@@ -211,6 +211,40 @@ Send the bare question through and the model answers from its weights.
 Nothing downstream can distinguish that from real recall about the user's own
 life. It is the worst failure this kind of system has.
 
+**Retrieval tuning needs the losers, not only the winners.** The one
+question that decides k, the pool, and the fusion weights is: of what
+retrieval offered, what did the model cite? If the model never cites past
+source 3, then k=8 spends context for nothing, and nothing else in the system
+can answer that. So recall logs every question with every fused candidate,
+including the ones that never reached the prompt, and marks which numbers
+the answer cited. A citation indexes the prompt, not the ref: "[2]" means
+the second source the model was given. The log lives in the same database
+as the corpus because the candidate rows must join to `chunk`, and a
+separate database makes the main question impossible to ask.
+
+Two rules keep it honest. A failed log write never reaches the answer: a
+layer that observes a path must not raise into it, and the call site guards
+again so a replaced logger cannot either. And the log defaults to on, with
+`RECALL_QUERY_LOG=0` to turn it off, because a log that quietly defaults to
+off looks healthy while recording nothing. `recall doctor` prints the row
+count for the same reason: a table that exists and records nothing looks
+exactly like a working one.
+
+The first real query through this log found the `ef_search` under-fill
+above. It had been there since the index was built.
+
+**A passing test suite is not evidence of test isolation.** Two tests once
+patched `retrieve.search`. Production moved to `retrieve.search_traced`, so
+the patch applied to nothing, the tests ran the real retrieval path against
+a live database, wrote 27 rows into the production query log, and still
+passed. `mock.patch` fails open when the code under test stops calling the
+name you patched, and nothing warns you that a patch is now decorative. So
+the suite cuts the boundary once, in `tests/conftest.py`, at the two
+functions that reach out, with a fixture that covers tests nobody has
+written yet. A test that wants the real thing says so with a marker. The
+fixture is itself tested, because a fixture nobody has seen fail is a
+fixture nobody can trust.
+
 ## Ingestion
 
 **Decide exclusions before ingesting, not after.** A filter anchored to a

@@ -69,3 +69,50 @@ class TestSystemPrompt(unittest.TestCase):
         text teaches the model the wrong shape."""
         self.assertNotIn('"me:"', answer.system_prompt("Ada"))
         self.assertNotIn("me:", answer.system_prompt(""))
+
+
+class Response:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        import json
+        return json.dumps(self.payload).encode()
+
+
+class TestChatMeta(unittest.TestCase):
+    """The log records what the server actually did, not what was asked."""
+
+    def test_it_fills_the_resolved_model_and_the_token_counts(self):
+        from unittest import mock
+        import urllib.request
+        payload = {"model": "/models/llama3.1-Q8.gguf",
+                   "choices": [{"message": {"content": "hi [1]"}}],
+                   "usage": {"prompt_tokens": 120, "completion_tokens": 9}}
+        meta = {}
+        with mock.patch.object(urllib.request, "urlopen",
+                               return_value=Response(payload)), \
+             mock.patch.object(answer.config, "CHAT_URL", "http://x/v1"):
+            text = answer.chat("prompt", meta=meta)
+        self.assertEqual(text, "hi [1]")
+        self.assertEqual(meta["model_resolved"], "/models/llama3.1-Q8.gguf")
+        self.assertEqual((meta["prompt_tokens"], meta["completion_tokens"]),
+                         (120, 9))
+        self.assertIsInstance(meta["generate_ms"], int)
+
+    def test_a_response_without_usage_still_answers(self):
+        from unittest import mock
+        import urllib.request
+        payload = {"choices": [{"message": {"content": "hi"}}]}
+        meta = {}
+        with mock.patch.object(urllib.request, "urlopen",
+                               return_value=Response(payload)), \
+             mock.patch.object(answer.config, "CHAT_URL", "http://x/v1"):
+            self.assertEqual(answer.chat("prompt", meta=meta), "hi")
+        self.assertIsNone(meta.get("prompt_tokens"))

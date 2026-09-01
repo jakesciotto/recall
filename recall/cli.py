@@ -51,10 +51,18 @@ def cmd_doctor(args):
           with db.connect() as conn:
               db.apply_schema(conn)
               rows = db.counts(conn)
+              logged = db.query_log_count(conn)
           total = sum(n for _, n in rows)
           _ok("postgres reachable", f"{total:,} chunks stored")
           for source, n in rows:
               print(f"          {source:14s} {n:,}")
+          # Read the count, never the table's existence. A log that exists
+          # and records nothing looks exactly like a working one.
+          from . import querylog
+          if querylog.enabled():
+              _ok("query log on", f"{logged:,} questions recorded")
+          else:
+              print("  off   query log (RECALL_QUERY_LOG=0)")
       except Exception as e:
           _bad("postgres unreachable", f"{type(e).__name__}: {str(e)[:90]}")
           print("          try: docker compose up -d")
@@ -148,32 +156,58 @@ def _embedder():
 
 
 def cmd_ask(args):
-    from . import answer, db, render, retrieve
+    import time
+    from . import answer, db, querylog, retrieve
+    started = time.monotonic()
     question = " ".join(args.question)
     with db.connect() as conn:
-        hits, dates = retrieve.search(question, conn, _embedder(),
-                                      k=args.k, source=args.source,
-                                      today=dt.date.today())
+        hits, dates, trace = retrieve.search_traced(
+            question, conn, _embedder(), k=args.k, source=args.source,
+            today=dt.date.today())
     if dates.phrase:
         print(f"date filter: {dates.phrase} -> {dates.since} .. {dates.until}",
               file=sys.stderr)
     for i, h in enumerate(hits, start=1):
         print(f"[{i}] {answer.cite(h)}", file=sys.stderr)
-    if args.sources_only or not config.CHAT_URL:
-        if not args.sources_only:
-            print("no generation endpoint set; showing sources only. "
-                  "See docs/answering.md.", file=sys.stderr)
-        return 0 if hits else 1
 
-    print()
     prompt = answer.build_prompt(question, hits)
-    if args.no_stream:
-        print(answer.chat(prompt))
-    else:
-        for piece in answer.chat_stream(prompt):
-            sys.stdout.write(piece)
-            sys.stdout.flush()
+    text = None
+    meta = {}
+    first_token_ms = None
+    generate = not args.sources_only and config.CHAT_URL
+    if generate:
         print()
+        if args.no_stream:
+            text = answer.chat(prompt, meta=meta)
+            print(text)
+        else:
+            parts = []
+            for piece in answer.chat_stream(prompt):
+                if first_token_ms is None:
+                    first_token_ms = int((time.monotonic() - started) * 1000)
+                parts.append(piece)
+                sys.stdout.write(piece)
+                sys.stdout.flush()
+            print()
+            text = "".join(parts)
+    elif not args.sources_only:
+        print("no generation endpoint set; showing sources only. "
+              "See docs/answering.md.", file=sys.stderr)
+
+    # Written whether or not a model ran: every retrieval decision happened.
+    # Guarded here as well as inside, so no logging change can ever cost the
+    # user an answer.
+    try:
+        querylog.log(client="cli", question=question, k=args.k,
+                     pool=retrieve.POOL, source=args.source, dates=dates,
+                     trace=trace, hits=hits, answer=text, meta=meta,
+                     model_requested=config.CHAT_MODEL,
+                     prompt_chars=len(prompt),
+                     streamed=bool(generate and not args.no_stream),
+                     first_token_ms=first_token_ms,
+                     total_ms=int((time.monotonic() - started) * 1000))
+    except Exception:
+        pass
     return 0 if hits else 1
 
 
