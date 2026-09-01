@@ -233,6 +233,22 @@ exactly like a working one.
 The first real query through this log found the `ef_search` under-fill
 above. It had been there since the index was built.
 
+**A model judge is a screen, not a verdict, and two judges agreeing is
+not evidence.** On the first attribution case measured, an answer credited
+the user with another person's race and crash. Two different models both
+called it grounded, in near-identical sentences, and both had the reply
+turn that settled who was speaking. Then a neutral question found a source
+the first check never read, and the top-line claim turned out true but
+miscited. So the judge was closer to right than the person checking it, the
+person had verified against one cited source instead of the whole set, and
+the misattributed crash was still a real failure. All three lessons hold at
+once: verify against the whole source set; do not read model agreement as
+correctness when the models can share a blind spot; and keep a human label
+column the judge cannot write, so the judge can be measured against it.
+`recall review` hides the judge's opinion until after the keypress, because
+showing it first makes the two agree more often than they should and the
+measurement becomes worthless. See docs/evaluating.md.
+
 **A passing test suite is not evidence of test isolation.** Two tests once
 patched `retrieve.search`. Production moved to `retrieve.search_traced`, so
 the patch applied to nothing, the tests ran the real retrieval path against

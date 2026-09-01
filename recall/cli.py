@@ -211,6 +211,22 @@ def cmd_ask(args):
     return 0 if hits else 1
 
 
+def cmd_judge(args):
+    from . import db, judge
+    with db.connect() as conn:
+        db.apply_schema(conn)
+        judge.run(conn, limit=args.limit, redo=args.redo, dry_run=args.dry_run)
+    return 0
+
+
+def cmd_review(args):
+    from . import db, review
+    with db.connect() as conn:
+        db.apply_schema(conn)
+        review.run(conn, limit=args.limit, redo=args.redo)
+    return 0
+
+
 def cmd_serve(args):
     from . import serve
     serve.main(args.bind or config.API_BIND, args.port or config.API_PORT)
@@ -240,6 +256,20 @@ def main(argv=None):
     a.add_argument("--sources-only", action="store_true")
     a.add_argument("--no-stream", action="store_true")
     a.set_defaults(fn=cmd_ask)
+
+    j = sub.add_parser("judge", help="grade logged answers with a model")
+    j.add_argument("--limit", type=int, default=50, help="rows per batch")
+    j.add_argument("--redo", action="store_true",
+                   help="judge rows that already carry a judgment")
+    j.add_argument("--dry-run", action="store_true",
+                   help="print judgments, write nothing")
+    j.set_defaults(fn=cmd_judge)
+
+    r = sub.add_parser("review", help="label logged answers by hand")
+    r.add_argument("--limit", type=int, default=20)
+    r.add_argument("--redo", action="store_true",
+                   help="revisit rows you already labelled")
+    r.set_defaults(fn=cmd_review)
 
     s = sub.add_parser("serve", help="run the HTTP API")
     s.add_argument("--bind")

@@ -84,6 +84,11 @@ because its absence broke a real run. They are written up in
   corpus. Nothing new leaves the box. The first real query through it found
   the dense arm returning half the candidates it was asked for.
   `RECALL_QUERY_LOG=0` turns it off.
+- **The judge is measured, not trusted.** `recall judge` grades logged
+  answers with a model; `recall review` labels them by hand, with the
+  judge's opinion hidden until after you decide. On the first attribution
+  case compared, two models agreed with each other and both missed who a
+  message was addressed to. See [docs/evaluating.md](docs/evaluating.md).
 
 ## Asking from a browser or another app
 

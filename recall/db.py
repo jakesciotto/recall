@@ -86,6 +86,20 @@ CREATE TABLE IF NOT EXISTS query_candidate (
 
 CREATE INDEX IF NOT EXISTS query_candidate_ref_idx ON query_candidate (ref);
 CREATE INDEX IF NOT EXISTS query_log_asked_idx ON query_log (asked_at);
+
+-- Model judgments over the log. Deliberately NO CHECK constraints: a model
+-- populates these, and a CHECK would fail a whole batch on one unexpected
+-- word. The code normalises to a known set and writes 'unknown' instead.
+-- verdict and note above stay human columns; the judge never writes them.
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_model text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judged_at timestamptz;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_grounded text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_retrieval text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_hedged text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_question_type text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_note text;
+CREATE INDEX IF NOT EXISTS query_log_unjudged_idx
+  ON query_log (id) WHERE judged_at IS NULL;
 """
 
 VECTOR_INDEX = ("CREATE INDEX IF NOT EXISTS chunk_embedding_idx ON chunk "

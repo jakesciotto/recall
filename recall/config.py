@@ -26,6 +26,9 @@ CHAT_MODEL = _env("RECALL_CHAT_MODEL", "")
 # and the prompt relabels those lines; storage never changes. See
 # docs/answering.md.
 USER_LABEL = _env("RECALL_USER_LABEL", "")
+# The model that grades logged answers. A model grading its own output
+# shows self-preference bias, so name a different one. See docs/evaluating.md.
+JUDGE_MODEL = _env("RECALL_JUDGE_MODEL", "")
 
 TOKENIZE_URL = _env("RECALL_TOKENIZE_URL", "")
 
