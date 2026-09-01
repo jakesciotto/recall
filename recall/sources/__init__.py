@@ -3,12 +3,14 @@
 from .base import Chunk, Source          # noqa: F401
 from .files import Files
 from .health import Health
+from .ical import ICal
 from .imessage import IMessage
 from .mbox import Mbox
 from .spotify import Spotify
 from .twitter import Twitter
 
-ADAPTERS = [IMessage(), Mbox(), Twitter(), Spotify(), Health(), Files()]
+ADAPTERS = [IMessage(), Mbox(), Twitter(), Spotify(), Health(), ICal(),
+            Files()]
 
 
 def detect_all(root):

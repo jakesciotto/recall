@@ -5,3 +5,6 @@ work/
 __pycache__/
 *.egg-info/
 .pytest_cache/
+
+# Local planning artifacts. Never committed.
+.claude/

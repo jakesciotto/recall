@@ -12,11 +12,18 @@ chunks does it produce?". That is why `recall ingest` needs no configuration.
 | `twitter` | any `tweets.js` | one day of tweets, or one DM window |
 | `spotify` | `*Streaming_History_Audio*.json` | one month, with detail inside |
 | `health` | `export.xml`, or the `export.zip` around it | one month of workouts |
+| `calendar` | any `*.ics` | one month of events, plus one chunk per described event |
 | `files` | a `documents/` directory | paragraph split with overlap |
 
 `health` opens `export.xml` only. The FHIR clinical records that Apple ships
 in the same export are never read, and `clinical-records` is excluded from the
 catch-all as well, so indexing medical data stays a deliberate choice.
+
+`calendar` writes every event into a month rollup and ALSO gives an event
+with a real description its own chunk. That is on purpose: the month gives
+context, the event gives detail, and descriptions hold meeting agendas and
+forwarded mail, the highest-signal text in the file. A recurring event is
+listed once, in its starting month, with its rule named.
 
 Drop any `*.vcf` under the data directory as well. It is not a source and
 produces no chunks; every adapter uses it to show contact names instead of

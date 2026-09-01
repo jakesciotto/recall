@@ -125,6 +125,19 @@ lengths. `chunking.parts` reserves the header and numbers the parts.
 **Number a part only when there is more than one.** A period that fits keeps
 its bare ref, so a later run does not re-embed every chunk that never changed.
 
+**iCalendar is a line format with three traps, and all three fail silently.**
+Long lines fold: a line starting with a space or a tab continues the one
+before it. Read the file without unfolding and every long value truncates
+at the fold, so 728 real descriptions measured as empty, median length one
+character folded and 286 unfolded. Then, a `VTIMEZONE` block carries its own
+`DTSTART` for the daylight rule, always dated 1970, so a whole-file scan for
+`DTSTART` invents events that never happened; read `VEVENT` blocks only.
+Then, `DTSTART` comes in three forms, UTC, an all-day date, and a time in a
+named zone, and reading only the UTC form misplaces the other two by up to
+seven hours. One more that bites on refs: `RECURRENCE-ID` marks one edited
+occurrence and reuses the parent `UID`, so without a suffix the two collide
+on the unique ref and one is silently lost.
+
 ## Naming people
 
 **Export your address book from wherever it actually lives.** The same corpus
