@@ -1,7 +1,10 @@
+import contextlib
 import unittest
 from unittest import mock
 
 from recall import cli
+
+VERBS = ("doctor", "ingest", "ask", "judge", "review", "serve")
 
 
 class TestEveryVerbDispatches(unittest.TestCase):
@@ -13,9 +16,10 @@ class TestEveryVerbDispatches(unittest.TestCase):
                      ["review"], ["serve"]):
             with self.subTest(verb=argv[0]):
                 seen = []
-                for name in ("cmd_doctor", "cmd_ingest", "cmd_ask",
-                             "cmd_judge", "cmd_review", "cmd_serve"):
-                    self.enterContext(mock.patch.object(
-                        cli, name, lambda a, n=name: seen.append(n) or 0))
-                self.assertEqual(cli.main(argv), 0)
-                self.assertEqual(seen, [f"cmd_{argv[0]}"])
+                with contextlib.ExitStack() as stack:
+                    for verb in VERBS:
+                        stack.enter_context(mock.patch.object(
+                            cli, f"cmd_{verb}",
+                            lambda a, v=verb: seen.append(v) or 0))
+                    self.assertEqual(cli.main(argv), 0)
+                self.assertEqual(seen, [argv[0]])
