@@ -1,0 +1,26 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # No database and no model server. tests/conftest.py blocks both for
+      # the whole suite, so a green run here means the tests are isolated,
+      # and a red run on a fresh machine is the first-run bug it exists to
+      # catch.
+      - run: pip install -e ".[dev]"
+      - run: recall --help
+      - run: python -m pytest -q
