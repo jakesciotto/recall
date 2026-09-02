@@ -111,6 +111,10 @@ interface and keep the token server-side.
 Docker, Python 3.10 or newer, and about 2 GB of disk for the embedding model.
 A GPU makes indexing far faster but nothing here requires one.
 
+PDFs need `pdftotext` from poppler (`apt install poppler-utils`,
+`dnf install poppler-utils`, `brew install poppler`). Without it every PDF is
+skipped; `recall doctor` says so, and the ingest prints one warning.
+
 ## Licence
 
 MIT.

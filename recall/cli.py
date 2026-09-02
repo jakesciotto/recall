@@ -42,6 +42,16 @@ def cmd_doctor(args):
         have_driver = False
         problems += 1
 
+    # A system binary, not a pip package, so pip install cannot bring it.
+    # Without it every PDF silently indexes as nothing.
+    import shutil
+    if shutil.which("pdftotext"):
+        _ok("pdftotext installed", "PDFs will be read")
+    else:
+        _bad("pdftotext missing", "PDFs are skipped. Install poppler: "
+             "apt/dnf poppler-utils, brew poppler")
+        problems += 1
+
     from . import db
     # Without the driver the database check can only repeat the same fault.
     if not have_driver:

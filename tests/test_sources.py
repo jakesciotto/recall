@@ -650,3 +650,26 @@ class TestSymlinkedExports(unittest.TestCase):
             (data / "health").symlink_to(real)
             self.assertEqual([p.name for p in health.Health().detect(data)],
                              ["export.xml"])
+
+
+class TestPdfWithoutPdftotext(unittest.TestCase):
+    """read_text returns nothing for a PDF when the binary is missing, and
+    that is the right call per file. But it must say so once, or a corpus
+    of PDFs indexes as nothing with a clean-looking summary."""
+
+    def setUp(self):
+        files._warned_pdftotext = False
+
+    def test_it_warns_once_and_yields_nothing(self):
+        import io
+        import contextlib
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as d:
+            pdf = pathlib.Path(d) / "a.pdf"
+            pdf.write_bytes(b"%PDF-1.4 not really")
+            with unittest.mock.patch.object(files, "PDFTOTEXT", None), \
+                 contextlib.redirect_stderr(err):
+                self.assertEqual(files.read_text(pdf), "")
+                self.assertEqual(files.read_text(pdf), "")
+        self.assertEqual(err.getvalue().count("pdftotext"), 1)
+        self.assertIn("poppler", err.getvalue())

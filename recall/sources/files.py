@@ -6,10 +6,18 @@ See docs/lessons.md.
 """
 
 import re
+import shutil
 import subprocess
+import sys
 import zipfile
 
 from .base import Chunk, Source, walk
+
+# Resolved once. PDFs go through poppler's pdftotext, and read_text swallows
+# every error per file, so a missing binary would turn a shelf of PDFs into
+# nothing with a clean-looking summary. The warning below fires once.
+PDFTOTEXT = shutil.which("pdftotext")
+_warned_pdftotext = False
 
 TEXT_EXT = {".txt", ".md", ".markdown", ".rst", ".csv", ".log", ".json"}
 OFFICE_EXT = {".docx", ".pptx", ".xlsx"}
@@ -38,11 +46,24 @@ def _is_binary(raw):
     return b"\x00" in raw[:4096]
 
 
+def _warn_pdftotext():
+    global _warned_pdftotext
+    if _warned_pdftotext:
+        return
+    _warned_pdftotext = True
+    print("pdftotext not found: every PDF is skipped. Install poppler "
+          "(apt: poppler-utils, dnf: poppler-utils, brew: poppler).",
+          file=sys.stderr)
+
+
 def read_text(path):
     ext = path.suffix.lower()
     try:
         if ext == ".pdf":
-            r = subprocess.run(["pdftotext", "-q", str(path), "-"],
+            if not PDFTOTEXT:
+                _warn_pdftotext()
+                return ""
+            r = subprocess.run([PDFTOTEXT, "-q", str(path), "-"],
                                capture_output=True, timeout=180)
             return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else ""
         if ext in OFFICE_EXT:
