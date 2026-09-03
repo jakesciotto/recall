@@ -62,6 +62,66 @@ class TestMboxQuoting(unittest.TestCase):
         self.assertEqual(mbox.strip_quoted("Just a note."), "Just a note.")
 
 
+def mime(parts):
+    """A multipart message. parts = [(content_type, payload_bytes, headers)]."""
+    from email.message import EmailMessage
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+    from email import encoders
+    msg = MIMEMultipart("mixed")
+    msg["From"] = "a@example.org"
+    msg["Subject"] = "s"
+    for ctype, payload, headers in parts:
+        main, sub = ctype.split("/")
+        part = MIMEBase(main, sub)
+        part.set_payload(payload)
+        encoders.encode_base64(part)
+        for k, v in headers.items():
+            part[k] = v
+        msg.attach(part)
+    return msg.as_bytes()
+
+
+BINARY = bytes(range(256)) * 8
+
+
+class TestMboxTakesTextPartsOnly(unittest.TestCase):
+    """A quarter of one real mailbox's chunks carried NUL bytes. Not
+    corrupted headers: inline images and undeclared attachments were being
+    decoded as text, because everything that was not text/plain went into
+    the HTML bucket. Three ingests died on the same DataError before the
+    cause was in view."""
+
+    def test_an_inline_image_never_reaches_the_body(self):
+        raw = mime([("text/plain", b"hello", {}),
+                    ("image/png", BINARY, {"Content-Disposition": "inline"})])
+        self.assertEqual(mbox.body_text(raw), "hello")
+
+    def test_a_binary_part_with_no_disposition_is_skipped(self):
+        raw = mime([("application/pdf", BINARY, {})])
+        self.assertEqual(mbox.body_text(raw), "")
+
+    def test_html_is_still_the_fallback(self):
+        raw = mime([("text/html", b"<p>hi <b>there</b></p>", {})])
+        self.assertIn("hi", mbox.body_text(raw))
+        self.assertNotIn("<b>", mbox.body_text(raw))
+
+    def test_html_plus_inline_image_yields_the_html_only(self):
+        """The real shape: no plain part, so the HTML bucket was joined and
+        the image bytes came with it."""
+        raw = mime([("text/html", b"<p>hi there</p>", {}),
+                    ("image/jpeg", BINARY, {"Content-Disposition": "inline"})])
+        body = mbox.body_text(raw)
+        self.assertIn("hi there", body)
+        self.assertNotIn("\x00", body)
+        self.assertLess(len(body), 40)
+
+    def test_a_declared_attachment_is_still_skipped(self):
+        raw = mime([("text/plain", b"body", {}),
+                    ("text/plain", b"log line", {"Content-Disposition": "attachment; filename=x.log"})])
+        self.assertEqual(mbox.body_text(raw), "body")
+
+
 def streamtyped(body):
     """Minimal Apple archive carrying one string, for the decoder test."""
     payload = body.encode()

@@ -105,7 +105,11 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
             summary[adapter.name] = {"new": 0, "updated": 0, "dropped": 0}
             continue
 
-        items = [{"text": c.text, "chunk": c} for c in work.pending]
+        # The text is cleaned HERE, before it is embedded and before the
+        # write path copies it over the row. Cleaning it inside _row alone
+        # let three runs die on the same NUL byte: _row's text was
+        # overwritten with this item's text a few lines below.
+        items = [{"text": clean(c.text), "chunk": c} for c in work.pending]
         dropped = []
         loaded = fresh = 0
 

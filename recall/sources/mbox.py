@@ -64,7 +64,10 @@ def body_text(raw):
         return ""
     plain, html = [], []
     for part in msg.walk():
-        if part.get_content_maintype() == "multipart":
+        # Text parts only. Everything else, inline images, PDFs, calendar
+        # invites, octet-streams, is not readable and decodes to bytes full
+        # of NUL. A quarter of one real mailbox's chunks carried them.
+        if part.get_content_type() not in ("text/plain", "text/html"):
             continue
         if "attachment" in str(part.get("Content-Disposition") or "").lower():
             continue

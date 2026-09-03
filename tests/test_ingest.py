@@ -205,3 +205,50 @@ class TestRowsNeverCarryNul(unittest.TestCase):
         chunk = base.Chunk(ref="email:<a\x00b>", text="a\x00b", source="email")
         stored = {"email:<ab>": ingest.digest("ab")}
         self.assertEqual(ingest.changed([chunk], stored).pending, [])
+
+
+class NulSource(base.Source):
+    name = "nulsource"
+
+    def detect(self, root):
+        return [root]
+
+    def samples(self, path):
+        return []
+
+    def chunks(self, path, budget, contacts=None):
+        yield base.Chunk(ref="nul:<a\x00b>", text="body\x00text", source=self.name)
+
+
+class TestNulSurvivesTheWholeRun(unittest.TestCase):
+    """Three ingests died on the same DataError. The strip sat in _row, and
+    the write path then overwrote the text column with the raw item text.
+    Only a test that drives run() end to end sees what actually reaches
+    upsert."""
+
+    def ingest(self, store, root):
+        with mock.patch.object(ingest, "db", store), \
+             mock.patch.object(ingest.chunking, "calibrate",
+                               return_value=8000), \
+             mock.patch.object(ingest.embedding, "embed_safe",
+                               lambda g, d, w: (g, [[0.0]] * len(g))), \
+             mock.patch.object(ingest, "detect_all",
+                               lambda r: [(NulSource(), r)]):
+            return ingest.run(root, Conn(), log=lambda *a: None)
+
+    def test_no_nul_reaches_upsert(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store()
+            self.ingest(store, pathlib.Path(tmp))
+            self.assertEqual(list(store.text), ["nul:<ab>"])
+            self.assertEqual(store.text["nul:<ab>"], "bodytext")
+
+    def test_the_second_run_writes_nothing(self):
+        """The digest and the stored text must agree after cleaning, or
+        the chunk re-embeds forever."""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store()
+            self.ingest(store, pathlib.Path(tmp))
+            summary = self.ingest(store, pathlib.Path(tmp))
+            self.assertEqual(summary["nulsource"], {"new": 0, "updated": 0,
+                                                    "dropped": 0})
