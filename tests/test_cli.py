@@ -4,7 +4,7 @@ from unittest import mock
 
 from recall import cli
 
-VERBS = ("doctor", "ingest", "ask", "judge", "review", "serve")
+VERBS = ("doctor", "ingest", "ask", "eval", "judge", "review", "serve")
 
 
 class TestEveryVerbDispatches(unittest.TestCase):
@@ -12,8 +12,8 @@ class TestEveryVerbDispatches(unittest.TestCase):
     then dies on args.fn. Nothing else would catch it."""
 
     def test_each_verb_reaches_its_function(self):
-        for argv in (["doctor"], ["ingest"], ["ask", "q"], ["judge"],
-                     ["review"], ["serve"]):
+        for argv in (["doctor"], ["ingest"], ["ask", "q"], ["eval", "f"],
+                     ["judge"], ["review"], ["serve"]):
             with self.subTest(verb=argv[0]):
                 seen = []
                 with contextlib.ExitStack() as stack:

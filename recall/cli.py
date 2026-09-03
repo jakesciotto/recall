@@ -221,6 +221,11 @@ def cmd_ask(args):
     return 0 if hits else 1
 
 
+def cmd_eval(args):
+    from . import evalrun
+    return 0 if evalrun.run(args.file, _embedder(), k=args.k) else 1
+
+
 def cmd_judge(args):
     from . import db, judge
     with db.connect() as conn:
@@ -266,6 +271,11 @@ def main(argv=None):
     a.add_argument("--sources-only", action="store_true")
     a.add_argument("--no-stream", action="store_true")
     a.set_defaults(fn=cmd_ask)
+
+    e = sub.add_parser("eval", help="ask every question in a file, logging each")
+    e.add_argument("file", help="markdown or text; numbered lines are questions")
+    e.add_argument("-k", type=int, default=8)
+    e.set_defaults(fn=cmd_eval)
 
     j = sub.add_parser("judge", help="grade logged answers with a model")
     j.add_argument("--limit", type=int, default=50, help="rows per batch")

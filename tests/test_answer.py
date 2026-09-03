@@ -31,9 +31,13 @@ class TestSpeakerLabels(unittest.TestCase):
 
     def test_no_label_means_no_change(self):
         """Storage keeps "me:" because every embedding was computed from it.
-        With no label configured the prompt matches the corpus exactly."""
+        With no label configured the prompt matches the corpus exactly.
+        None means "use the configured label", so the configuration is
+        pinned rather than read from whatever .env sits in the tree."""
+        from unittest import mock
         self.assertEqual(answer.speaker_labels("me: hi", ""), "me: hi")
-        self.assertEqual(answer.speaker_labels("me: hi", None), "me: hi")
+        with mock.patch.object(answer.config, "USER_LABEL", ""):
+            self.assertEqual(answer.speaker_labels("me: hi", None), "me: hi")
 
 
 class TestBuildPrompt(unittest.TestCase):

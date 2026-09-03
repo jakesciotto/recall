@@ -5,6 +5,19 @@ model cited, and how long each stage took. That gives you the deterministic
 numbers for free. Two more tools sit on top of the log, and they are built
 to be compared against each other.
 
+## Filling the log in one sitting
+
+```bash
+recall eval ~/my-questions.md
+```
+
+Numbered lines are questions. Headings, prose and bullets are not, so the
+file can carry notes about what each group tests: exact facts, current
+truth against superseded, multi-hop, and questions the archive must decline.
+Every question is logged with `client = eval`, which keeps a batch separable
+from what you ask by hand. Keep the file wherever your private notes live;
+it is your data, not recall's.
+
 ## The judge
 
 ```bash
