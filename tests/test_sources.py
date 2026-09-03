@@ -122,6 +122,76 @@ class TestMboxTakesTextPartsOnly(unittest.TestCase):
         self.assertEqual(mbox.body_text(raw), "body")
 
 
+def mbox_file(d, messages):
+    """An mbox with one message per (thread_id, body) pair, no labels, so
+    every message is kept."""
+    lines = []
+    for i, (tid, body) in enumerate(messages):
+        lines.append(f"From a@example.org Mon Jun  4 12:00:00 2018\n")
+        lines.append(f"From: a@example.org\nSubject: s\n"
+                     f"Date: Mon, 4 Jun 2018 12:00:{i:02d} +0000\n"
+                     f"Message-ID: <m{i}@example.org>\nX-GM-THRID: {tid}\n"
+                     f"Content-Type: text/plain\n\n{body}\n\n")
+    path = pathlib.Path(d) / "mail.mbox"
+    path.write_text("".join(lines))
+    return path
+
+
+class TestMboxRefsAreUnique(unittest.TestCase):
+    """One real mailbox lost 1,387 rows to 729 colliding refs. A thread of
+    one message longer than the budget splits into parts, and the part
+    suffix was gated on the thread having more messages than the part,
+    which a split single message never satisfies."""
+
+    def test_one_long_message_splits_with_distinct_refs(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = mbox_file(d, [("111", "word " * 2000)])
+            cs = list(mbox.Mbox().chunks(path, 3000))
+        self.assertGreater(len(cs), 1)
+        self.assertEqual(len({c.ref for c in cs}), len(cs))
+        for c in cs:
+            self.assertLessEqual(len(c.text), 3000)
+
+    def test_a_short_thread_keeps_a_bare_ref(self):
+        """A part suffix on an unsplit chunk would change every stable ref
+        already stored."""
+        with tempfile.TemporaryDirectory() as d:
+            path = mbox_file(d, [("222", "short")])
+            cs = list(mbox.Mbox().chunks(path, 3000))
+        self.assertEqual([c.ref for c in cs], ["email:222"])
+
+    def test_no_chunk_exceeds_the_budget_across_message_sizes(self):
+        """The body packs right up to the budget, so the header is what
+        pushes a chunk over. Only some lengths land close enough to the
+        edge for it to matter, so sweep them."""
+        for n in (3, 4, 7, 60, 200, 700):
+            with self.subTest(word_chars=n):
+                with tempfile.TemporaryDirectory() as d:
+                    path = mbox_file(d, [("444", ("x" * n + " ") * 400)] * 3)
+                    cs = list(mbox.Mbox().chunks(path, 2000))
+                self.assertGreater(len(cs), 1)
+                self.assertEqual(len({c.ref for c in cs}), len(cs))
+                for c in cs:
+                    self.assertLessEqual(len(c.text), 2000)
+
+    def test_a_long_subject_cannot_starve_the_body(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = mbox_file(d, [("555", "body")])
+            raw = path.read_text().replace("Subject: s", "Subject: " + "S" * 5000)
+            path.write_text(raw)
+            cs = list(mbox.Mbox().chunks(path, 2000))
+        self.assertEqual(len(cs), 1)
+        self.assertLessEqual(len(cs[0].text), 2000)
+        self.assertIn("body", cs[0].text)
+
+    def test_a_long_thread_of_short_messages_still_suffixes(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = mbox_file(d, [("333", "line " * 100)] * 12)
+            cs = list(mbox.Mbox().chunks(path, 1500))
+        self.assertGreater(len(cs), 1)
+        self.assertEqual(len({c.ref for c in cs}), len(cs))
+
+
 def streamtyped(body):
     """Minimal Apple archive carrying one string, for the decoder test."""
     payload = body.encode()

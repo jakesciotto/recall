@@ -182,15 +182,28 @@ class Mbox(Source):
             subject = (first["subject"] or "(no subject)").strip()
             day = (first["at"] or "")[:10]
             who = sorted({m["sender"] for m in msgs if m["sender"]})
-            for i, part in enumerate(pack(msgs, budget), start=1):
+            # The header rides on top of a body already packed to the
+            # budget, so its length comes out of the room first. A subject
+            # is capped so a runaway one cannot starve the body.
+            header = f"[{day}, email thread: {subject[:200]}]"
+            prefix = max(len(f"{label(m['sender'], contacts)} "
+                             f"({(m['at'] or '')[:10]}): ") for m in msgs)
+            room = max(budget - len(header) - 1 - prefix, budget // 2)
+            # The suffix is gated on the NUMBER OF PARTS, not on the thread
+            # holding more messages than a part. pack splits one over-budget
+            # message into pieces, and a thread of one long message then
+            # yields two parts of one item each; the old test read False for
+            # both and the second overwrote the first on the unique ref.
+            parts = list(pack(msgs, room))
+            multi = len(parts) > 1
+            for i, part in enumerate(parts, start=1):
                 body = "\n\n".join(
                     f"{label(m['sender'], contacts)} "
                     f"({(m['at'] or '')[:10]}): {m['text']}"
                     for m in part)
-                multi = len(msgs) > len(part)
                 yield Chunk(
                     ref=f"email:{tid}" + (f"#{i}" if multi else ""),
-                    text=f"[{day}, email thread: {subject}]\n{body}",
+                    text=f"{header}\n{body}",
                     source=self.name,
                     occurred_at=first["at"],
                     date_confidence="exact" if first["at"] else "low",
