@@ -4,6 +4,39 @@ edits at all. Override any of it through the environment or a .env file.
 
 import os
 import pathlib
+import re
+
+_LINE = re.compile(r"""^\s*(?:export\s+)?(RECALL_[A-Z0-9_]+)\s*=\s*(.*?)\s*$""")
+
+
+def load_dotenv(path=None):
+    """Read RECALL_* lines from .env into the environment, never overriding
+    a variable the shell already set.
+
+    The README says cp .env.example .env. docker compose reads that file for
+    the containers, and the CLI has to read it too, or a chat URL set there
+    reports as unset. Only RECALL_ keys are taken: the same file can carry
+    POSTGRES_PASSWORD for compose, and that is not the CLI's business.
+    """
+    path = pathlib.Path(path or ".env")
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        m = _LINE.match(line)
+        if not m:
+            continue
+        key, value = m.group(1), m.group(2)
+        if value[:1] in ("'", '"') and value[-1:] == value[:1] and len(value) > 1:
+            value = value[1:-1]
+        else:
+            value = value.split(" #", 1)[0].rstrip()
+        os.environ.setdefault(key, value)
+
+
+load_dotenv()
+
 
 def _env(name, default):
     return os.environ.get(name, default)
