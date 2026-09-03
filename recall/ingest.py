@@ -23,10 +23,21 @@ def digest(text):
     return hashlib.md5(text.encode("utf-8")).hexdigest()
 
 
+def clean(value):
+    """Text Postgres can hold. A text column can never carry 0x00, and one
+    NUL byte in one email chunk once raised DataError inside upsert and
+    ended the whole run before the next source started. The strip lives
+    here, at the one point every row passes through, so no adapter has to
+    remember it."""
+    if value is None:
+        return None
+    return value.replace("\x00", "")
+
+
 def _ref_text(chunk):
     if hasattr(chunk, "ref"):
-        return chunk.ref, chunk.text
-    return chunk["ref"], chunk["text"]
+        return chunk.ref, clean(chunk.text)
+    return chunk["ref"], clean(chunk["text"])
 
 
 def changed(chunks, stored):
@@ -56,9 +67,10 @@ def changed(chunks, stored):
 
 def _row(chunk):
     d = chunk.as_dict() if hasattr(chunk, "as_dict") else dict(chunk)
-    return (d["ref"], d["text"], d["source"], d.get("occurred_at"),
-            d.get("date_confidence") or "low", d.get("participants") or [],
-            d.get("thread"), d.get("path"), None)
+    return (d["ref"], clean(d["text"]), d["source"], d.get("occurred_at"),
+            d.get("date_confidence") or "low",
+            [clean(p) for p in (d.get("participants") or [])],
+            clean(d.get("thread")), clean(d.get("path")), None)
 
 
 def run(root, conn, log=print, batch_cap=64, reindex=True):
