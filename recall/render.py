@@ -16,9 +16,12 @@ one tested implementation replaces two untested JavaScript ones.
 
 import re
 
-# Multi-number groups are the trap. The model writes "[4, 5]", so a pattern
-# for a single number silently misses half the citations in an answer.
-_CITE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
+# Two traps. Multi-number groups: the model writes "[4, 5]", so a pattern
+# for a single number silently misses half the citations in an answer. And
+# bracket shape: some models write 【2】 with the fullwidth CJK brackets, and
+# an ASCII-only pattern reads every such answer as uncited, which looks
+# exactly like a model that hedges.
+_CITE = re.compile(r"[\[【](\d+(?:\s*,\s*\d+)*)[\]】]")
 _BOLD = re.compile(r"\*\*(\S(?:.*?\S)?)\*\*", re.S)
 _BULLET = re.compile(r"^(\s*)[*-]\s+(.*)$")
 # The model produces two levels and the UI needs no more. Capping stops one

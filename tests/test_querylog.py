@@ -100,6 +100,10 @@ class TestCitedNumbers(unittest.TestCase):
         valid, invalid = querylog.cited_numbers("[2] then [12]", 8)
         self.assertEqual((valid, invalid), ([2], [12]))
 
+    def test_fullwidth_brackets_count(self):
+        valid, invalid = querylog.cited_numbers("see【1】and【2, 9】", 3)
+        self.assertEqual((valid, invalid), ([1, 2], [9]))
+
     def test_no_answer_cites_nothing(self):
         self.assertEqual(querylog.cited_numbers(None, 3), ([], []))
 

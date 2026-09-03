@@ -95,6 +95,14 @@ class TestCitations(unittest.TestCase):
         cites = [s for s in b["spans"] if s.get("type") == "cite"]
         self.assertEqual(cites[0]["n"], [4])
 
+    def test_fullwidth_brackets_are_citations_too(self):
+        """Some models write citations as 【2】, with the CJK brackets. On the
+        first real eval, 27 of 30 answers cited that way and the log read
+        every one as uncited, which looks exactly like a hedging model."""
+        [b] = blocks("A claim【2】and another【4, 5】.")
+        cites = [s["n"] for s in b["spans"] if s.get("type") == "cite"]
+        self.assertEqual(cites, [[2], [4, 5]])
+
     def test_a_multi_number_citation_keeps_every_number(self):
         [b] = blocks("A claim [4, 5].")
         cites = [s for s in b["spans"] if s.get("type") == "cite"]
