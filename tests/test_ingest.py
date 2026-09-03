@@ -183,10 +183,13 @@ class TestRowsNeverCarryNul(unittest.TestCase):
     passes through, so no adapter has to remember it."""
 
     def test_nul_is_stripped_from_every_text_column(self):
-        chunk = base.Chunk(ref="email:1", text="before\x00after",
+        """ref included. The second real NUL arrived in a Message-ID
+        header, which the mbox adapter turns into the ref."""
+        chunk = base.Chunk(ref="email:<a\x00b>", text="before\x00after",
                            source="email", thread="t\x00", path="p\x00.eml",
                            participants=["a\x00@x"])
         ref, text, source, _, _, participants, thread, path, _ = ingest._row(chunk)
+        self.assertEqual(ref, "email:<ab>")
         self.assertEqual(text, "beforeafter")
         self.assertEqual(thread, "t")
         self.assertEqual(path, "p.eml")
@@ -196,9 +199,9 @@ class TestRowsNeverCarryNul(unittest.TestCase):
         row = ingest._row({"ref": "x", "text": "a\x00b", "source": "s"})
         self.assertEqual(row[1], "ab")
 
-    def test_the_digest_sees_the_stripped_text(self):
-        """Otherwise the stored text never matches what the source produces
+    def test_the_digest_sees_the_stripped_text_and_ref(self):
+        """Otherwise the stored row never matches what the source produces
         and the chunk re-embeds on every run."""
-        chunk = base.Chunk(ref="email:1", text="a\x00b", source="email")
-        stored = {"email:1": ingest.digest("ab")}
+        chunk = base.Chunk(ref="email:<a\x00b>", text="a\x00b", source="email")
+        stored = {"email:<ab>": ingest.digest("ab")}
         self.assertEqual(ingest.changed([chunk], stored).pending, [])

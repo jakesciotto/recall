@@ -29,15 +29,15 @@ def clean(value):
     ended the whole run before the next source started. The strip lives
     here, at the one point every row passes through, so no adapter has to
     remember it."""
-    if value is None:
-        return None
+    if not isinstance(value, str):
+        return value
     return value.replace("\x00", "")
 
 
 def _ref_text(chunk):
     if hasattr(chunk, "ref"):
-        return chunk.ref, clean(chunk.text)
-    return chunk["ref"], clean(chunk["text"])
+        return clean(chunk.ref), clean(chunk.text)
+    return clean(chunk["ref"]), clean(chunk["text"])
 
 
 def changed(chunks, stored):
@@ -66,9 +66,12 @@ def changed(chunks, stored):
 
 
 def _row(chunk):
+    """Every string column cleaned, ref included. The first NUL came in a
+    message body; the second came in a Message-ID header, which becomes
+    the ref. A strip that names columns misses the next one."""
     d = chunk.as_dict() if hasattr(chunk, "as_dict") else dict(chunk)
-    return (d["ref"], clean(d["text"]), d["source"], d.get("occurred_at"),
-            d.get("date_confidence") or "low",
+    return (clean(d["ref"]), clean(d["text"]), clean(d["source"]),
+            clean(d.get("occurred_at")), clean(d.get("date_confidence")) or "low",
             [clean(p) for p in (d.get("participants") or [])],
             clean(d.get("thread")), clean(d.get("path")), None)
 
