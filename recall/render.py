@@ -21,7 +21,9 @@ import re
 # bracket shape: some models write 【2】 with the fullwidth CJK brackets, and
 # an ASCII-only pattern reads every such answer as uncited, which looks
 # exactly like a model that hedges.
-_CITE = re.compile(r"[\[【](\d+(?:\s*,\s*\d+)*)[\]】]")
+# A third shape, 【4†L1-L9】: the number, then a dagger and a line range.
+# The number is the citation; the range is decoration and is dropped.
+_CITE = re.compile(r"[\[【](\d+(?:\s*,\s*\d+)*)(?:†[^\]】]*)?[\]】]")
 _BOLD = re.compile(r"\*\*(\S(?:.*?\S)?)\*\*", re.S)
 _BULLET = re.compile(r"^(\s*)[*-]\s+(.*)$")
 # The model produces two levels and the UI needs no more. Capping stops one

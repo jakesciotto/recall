@@ -37,6 +37,16 @@ class TestParseDates(unittest.TestCase):
         self.assertEqual((f.since, f.until, f.phrase),
                          ("2021-02-03", "2021-02-04", "2021-02-03"))
 
+    def test_two_years_span_both(self):
+        """"Whom did I text most in 2019, and whom in 2021" filtered to 2019
+        alone, and the model correctly reported it had no 2021 data."""
+        f = retrieve.parse_dates("whom did I text most in 2019, and whom in 2021?", TODAY)
+        self.assertEqual((f.since, f.until), ("2019-01-01", "2022-01-01"))
+
+    def test_the_same_year_twice_is_one_year(self):
+        f = retrieve.parse_dates("in 2019, early 2019", TODAY)
+        self.assertEqual((f.since, f.until), ("2019-01-01", "2020-01-01"))
+
     def test_an_impossible_iso_date_does_not_fire(self):
         f = retrieve.parse_dates("on 2021-13-45", TODAY)
         self.assertEqual(f, retrieve.parse_dates("in 2021", TODAY))

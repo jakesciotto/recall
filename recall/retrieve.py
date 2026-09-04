@@ -99,9 +99,13 @@ def parse_dates(query, today):
     if m:
         year = today.year - 1 if m.group(1) == "last" else today.year
         return DateFilter(*_span(year, 1, 12), phrase=m.group(0))
-    m = re.search(YEAR, q)
-    if m and int(m.group(1)) <= today.year + 1:
-        return DateFilter(*_span(int(m.group(1)), 1, 12), phrase=m.group(1))
+    years = sorted({int(y) for y in re.findall(YEAR, q) if int(y) <= today.year + 1})
+    if years:
+        # Two years span both. "Most in 2019, and in 2021" once filtered to
+        # 2019 alone, and the model correctly reported it held no 2021 data.
+        lo, hi = years[0], years[-1]
+        phrase = str(lo) if lo == hi else f"{lo} to {hi}"
+        return DateFilter(_span(lo, 1, 12)[0], _span(hi, 1, 12)[1], phrase=phrase)
     return NO_DATES
 
 

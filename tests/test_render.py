@@ -103,6 +103,14 @@ class TestCitations(unittest.TestCase):
         cites = [s["n"] for s in b["spans"] if s.get("type") == "cite"]
         self.assertEqual(cites, [[2], [4, 5]])
 
+    def test_a_dagger_line_range_is_still_a_citation(self):
+        """A third shape, seen on the second real eval: 【4†L1-L9】, the
+        source number with a line range after a dagger. The number is the
+        citation; the range is decoration."""
+        [b] = blocks("A claim【4†L1-L9】and【8†L1-L7】.")
+        cites = [s["n"] for s in b["spans"] if s.get("type") == "cite"]
+        self.assertEqual(cites, [[4], [8]])
+
     def test_a_multi_number_citation_keeps_every_number(self):
         [b] = blocks("A claim [4, 5].")
         cites = [s for s in b["spans"] if s.get("type") == "cite"]
