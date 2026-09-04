@@ -1,5 +1,6 @@
 import datetime as dt
 import unittest
+from unittest import mock
 
 from recall import db, retrieve
 
@@ -28,6 +29,17 @@ class TestRRF(unittest.TestCase):
 class TestParseDates(unittest.TestCase):
     """A wrong date filter does not degrade an answer, it removes it, and the
     user sees a confident "nothing found" rather than a mistake."""
+
+    def test_an_iso_date_bounds_that_one_day(self):
+        """"Whom did I text on 2021-02-03" filtered to the whole year and
+        offered 14,298 chunks where the day held 88."""
+        f = retrieve.parse_dates("whom did I text on 2021-02-03?", TODAY)
+        self.assertEqual((f.since, f.until, f.phrase),
+                         ("2021-02-03", "2021-02-04", "2021-02-03"))
+
+    def test_an_impossible_iso_date_does_not_fire(self):
+        f = retrieve.parse_dates("on 2021-13-45", TODAY)
+        self.assertEqual(f, retrieve.parse_dates("in 2021", TODAY))
 
     def test_a_bare_year_bounds_that_year(self):
         f = retrieve.parse_dates("the trip in 2018", TODAY)
@@ -81,9 +93,17 @@ class TestWhereClause(unittest.TestCase):
 
 
 class TestSQLShape(unittest.TestCase):
-    def test_the_sparse_arm_uses_plainto_tsquery(self):
-        """to_tsquery rejects ordinary punctuation; plainto_tsquery does not."""
-        self.assertIn("plainto_tsquery", retrieve.sparse_sql("", 10))
+    def test_the_question_is_parsed_with_plainto_tsquery(self):
+        """to_tsquery rejects ordinary punctuation; plainto_tsquery does not.
+        The parse now happens in term selection, not in the search SQL."""
+        conn = DFConn(["dentist"], 1000, {"'dentist'": 3})
+        retrieve.sparse_terms(conn, "when did I last see the dentist?")
+        self.assertTrue(any("plainto_tsquery" in s for s in conn.log))
+
+    def test_the_sparse_arm_takes_a_prebuilt_query(self):
+        sql = retrieve.sparse_sql("", 10)
+        self.assertIn("%s::tsquery", sql)
+        self.assertNotIn("plainto_tsquery", sql)
 
     def test_the_dense_arm_orders_by_distance(self):
         self.assertIn("<=>", retrieve.dense_sql("", 10))
@@ -118,7 +138,7 @@ class Cursor:
             self.result = [self.echo if self.echo is not None else params[0]]
         elif "<=>" in sql:
             self.result = [list(self.rows.get("dense", []))]
-        elif "plainto_tsquery" in sql:
+        elif "ts_rank" in sql:
             self.result = [list(self.rows.get("sparse", []))]
         else:
             self.result = [[]]
@@ -220,8 +240,11 @@ class TestSearchTraced(unittest.TestCase):
 
     def traced(self, **kw):
         conn = self.conn()
-        hits, dates, trace = retrieve.search_traced(
-            "what happened", conn, lambda t: [0.0] * 4, k=2, today=TODAY, **kw)
+        with mock.patch.object(retrieve, "sparse_terms",
+                               return_value=["'happen'"]):
+            hits, dates, trace = retrieve.search_traced(
+                "what happened", conn, lambda t: [0.0] * 4, k=2, today=TODAY,
+                **kw)
         return hits, dates, trace, conn
 
     def test_it_returns_hits_dates_and_a_trace(self):
@@ -257,8 +280,10 @@ class TestSearchTraced(unittest.TestCase):
 
     def test_search_is_the_same_path_with_the_trace_dropped(self):
         conn = self.conn()
-        hits, dates = retrieve.search("what happened", conn,
-                                      lambda t: [0.0] * 4, k=2, today=TODAY)
+        with mock.patch.object(retrieve, "sparse_terms",
+                               return_value=["'happen'"]):
+            hits, dates = retrieve.search("what happened", conn,
+                                          lambda t: [0.0] * 4, k=2, today=TODAY)
         traced, _, _, _ = self.traced()
         self.assertEqual([h["ref"] for h in hits], [h["ref"] for h in traced])
 
@@ -267,10 +292,78 @@ class TestSearchTraced(unittest.TestCase):
         twice, around the filter parameters. Get the order wrong and the
         date lands where the vector should be."""
         conn = Conn(dense=[], sparse=[])
-        retrieve.search_traced("what happened in 2018", conn,
-                               lambda t: [0.5] * 2, today=TODAY)
+        with mock.patch.object(retrieve, "sparse_terms",
+                               return_value=["'happen'"]):
+            retrieve.search_traced("what happened in 2018", conn,
+                                   lambda t: [0.5] * 2, today=TODAY)
         sql, params = next((s, p) for s, p in conn.log if "<=>" in s)
         vec = retrieve.vector_literal([0.5] * 2)
         self.assertEqual(params[0], vec)
         self.assertEqual(params[-1], vec)
         self.assertEqual(params[1:-1], ["2018-01-01", "2019-01-01"])
+
+
+
+class DFConn:
+    """Answers the three statements term selection makes: the lexeme parse,
+    the corpus size, and one document-frequency count per lexeme."""
+
+    def __init__(self, lexemes, total, df):
+        self.lexemes, self.total, self.df = lexemes, total, df
+        self.log = []
+
+    def cursor(self):
+        conn = self
+
+        class Cur:
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+
+            def execute(s, sql, params=None):
+                conn.log.append(sql)
+                if "plainto_tsquery" in sql:
+                    s.result = [" & ".join(f"'{l}'" for l in conn.lexemes)]
+                elif "reltuples" in sql:
+                    s.result = [conn.total]
+                else:
+                    s.result = [conn.df[params[0]]]
+
+            def fetchone(s): return s.result
+        return Cur()
+
+
+class TestSparseTerms(unittest.TestCase):
+    """plainto_tsquery ANDs every lexeme and matched nothing on 26 of the
+    first 30 real questions. OR-ing them all let common words outrank the
+    one that mattered, and no Postgres ranking has document frequency. So
+    the arm searches by the distinctive words: lexemes rare in the corpus."""
+
+    def test_common_lexemes_are_dropped(self):
+        conn = DFConn(["first", "told", "chatgpt", "channel"], 100000,
+                      {"'first'": 40000, "'told'": 30000, "'chatgpt'": 64,
+                       "'channel'": 9000})
+        self.assertEqual(retrieve.sparse_terms(conn, "q"), ["'chatgpt'"])
+
+    def test_when_nothing_is_rare_the_rarest_two_survive(self):
+        """A question of ordinary words still gets an arm."""
+        conn = DFConn(["text", "friend", "dinner"], 100000,
+                      {"'text'": 50000, "'friend'": 20000, "'dinner'": 8000})
+        self.assertEqual(retrieve.sparse_terms(conn, "q"),
+                         ["'dinner'", "'friend'"])
+
+    def test_a_lexeme_absent_from_the_corpus_is_dropped(self):
+        conn = DFConn(["quantum", "tweet"], 100000,
+                      {"'quantum'": 0, "'tweet'": 300})
+        self.assertEqual(retrieve.sparse_terms(conn, "q"), ["'tweet'"])
+
+    def test_at_most_four_terms(self):
+        conn = DFConn([f"w{i}" for i in range(6)], 100000,
+                      {f"'w{i}'": 10 + i for i in range(6)})
+        self.assertEqual(len(retrieve.sparse_terms(conn, "q")), 4)
+
+    def test_no_lexemes_means_no_terms(self):
+        conn = DFConn([], 100000, {})
+        self.assertEqual(retrieve.sparse_terms(conn, "the and of"), [])
+
+    def test_the_query_ors_the_terms(self):
+        self.assertEqual(retrieve.tsquery(["'a'", "'b'"]), "'a' | 'b'")

@@ -41,6 +41,7 @@ SEASONS = {"spring": (3, 3), "summer": (6, 3), "fall": (9, 3),
 # like 2026, and matching one narrows a decade of messages to a year the
 # question never mentioned.
 YEAR = r"(?<!\d)((?:19|20)\d{2})(?!\d)"
+ISO_DAY = r"(?<!\d)((?:19|20)\d{2})-(\d{2})-(\d{2})(?!\d)"
 
 
 def rrf(rank_lists, k=RRF_K):
@@ -67,6 +68,16 @@ def parse_dates(query, today):
     rather than degrading it.
     """
     q = (query or "").lower()
+    m = re.search(ISO_DAY, q)
+    if m:
+        try:
+            day = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            day = None
+        if day and day.year <= today.year + 1:
+            return DateFilter(day.isoformat(),
+                              (day + dt.timedelta(days=1)).isoformat(),
+                              phrase=m.group(0))
 
     m = re.search(r"\b(" + "|".join(MONTHS) + r")\s+" + YEAR, q)
     if m:
@@ -121,15 +132,56 @@ def dense_sql(where, pool):
             f"ORDER BY embedding <=> %s::vector LIMIT {int(pool)}")
 
 
+# The sparse arm searches by the DISTINCTIVE words in the question.
+#
+# plainto_tsquery joins every lexeme with AND. A natural-language question
+# has four or five content words, a chunk holding all of them is rare, and
+# the arm returned nothing on 26 of the first 30 real questions: the hybrid
+# retriever was dense-only in practice. OR-ing every lexeme fixed the zero
+# rows and broke the ranking instead, because ts_rank has no notion of
+# document frequency, so "first" and "channel" outranked "chatgpt" and the
+# one chunk that mattered never reached the pool. No Postgres ranking
+# variant changed that; the five-question sweep is in docs/lessons.md.
+#
+# So the lexemes are counted against the corpus, one GIN lookup each, and
+# only the rare ones are searched. A lexeme in more than RARE_SHARE of all
+# chunks carries no signal. When nothing is rare the rarest two survive,
+# so a question of ordinary words still gets an arm.
+RARE_SHARE = 0.02
+MAX_TERMS = 4
+_LEXEME = re.compile(r"'([^']+)'")
+
+
+def sparse_terms(conn, question):
+    """The quoted lexemes to search, rarest first, at most MAX_TERMS."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT plainto_tsquery('english', %s)::text", [question])
+        lexemes = [f"'{l}'" for l in _LEXEME.findall(cur.fetchone()[0] or "")]
+        if not lexemes:
+            return []
+        cur.execute("SELECT reltuples::bigint FROM pg_class WHERE relname = 'chunk'")
+        total = max(int(cur.fetchone()[0] or 0), 1)
+        counted = []
+        for lex in lexemes:
+            cur.execute("SELECT count(*) FROM chunk WHERE tsv @@ %s::tsquery", [lex])
+            counted.append((int(cur.fetchone()[0]), lex))
+    counted = sorted((df, lex) for df, lex in counted if df > 0)
+    rare = [lex for df, lex in counted if df <= total * RARE_SHARE]
+    chosen = rare or [lex for _, lex in counted[:2]]
+    return chosen[:MAX_TERMS]
+
+
+def tsquery(terms):
+    return " | ".join(terms)
+
+
 def sparse_sql(where, pool):
-    """plainto_tsquery, not to_tsquery: to_tsquery rejects ordinary
-    punctuation. The question binds three times: rank, filter, order."""
+    """The prebuilt query binds three times: rank, filter, order."""
     join = " AND " if where else " WHERE "
-    return (f"SELECT {COLUMNS}, "
-            f"ts_rank(tsv, plainto_tsquery('english', %s)) AS rank "
+    return (f"SELECT {COLUMNS}, ts_rank(tsv, %s::tsquery, 1) AS rank "
             f"FROM chunk{where}{join}"
-            f"tsv @@ plainto_tsquery('english', %s) "
-            f"ORDER BY ts_rank(tsv, plainto_tsquery('english', %s)) DESC "
+            f"tsv @@ %s::tsquery "
+            f"ORDER BY ts_rank(tsv, %s::tsquery, 1) DESC "
             f"LIMIT {int(pool)}")
 
 
@@ -174,8 +226,13 @@ def search_traced(question, conn, embedder, k=TOP_K, pool=POOL, source=None,
     dense_ms = _ms(t)
 
     t = time.monotonic()
-    sparse = list(db.fetch(conn, sparse_sql(where, pool),
-                           [question] + params + [question, question]))
+    terms = sparse_terms(conn, question)
+    if terms:
+        tsq = tsquery(terms)
+        sparse = list(db.fetch(conn, sparse_sql(where, pool),
+                               [tsq] + params + [tsq, tsq]))
+    else:
+        sparse = []
     sparse_ms = _ms(t)
 
     by_ref = {r["ref"]: r for r in dense + sparse}

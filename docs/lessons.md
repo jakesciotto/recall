@@ -178,6 +178,33 @@ because so many real questions are metadata questions wearing semantic
 clothes. Fuse on **rank**, never on score: cosine distance and `ts_rank` are
 not comparable numbers, and normalising them invents a relationship.
 
+**"Hybrid always" was dense-only, and nothing said so.** `plainto_tsquery`
+joins every lexeme with AND. A natural-language question has four or five
+content words, and a chunk holding all of them is rare, so on the first 30
+real questions the full-text arm returned zero rows on 26. Every one of
+those answers came from the dense arm alone, the fusion fused one list with
+an empty one, and no log line, error, or test noticed, because an empty arm
+is not an error. It showed up only in the query log, as `sparse_n = 0` on
+row after row. Count what each arm returns; do not trust that it ran.
+
+The obvious fix made it worse in a different way. OR-ing the lexemes gave
+every question rows, and `ts_rank` then put "first" and "channel" above
+"chatgpt", because Postgres full-text ranking has no notion of document
+frequency: a common word in a long chunk outscores the rare word that the
+question is about. Measured across five ranking variants on five questions
+with one distinctive key term, the chunk holding the key term reached the
+pool of 50 in 0 to 2 cases for `ts_rank`, and never reliably for any
+variant. So the arm now counts each lexeme against the corpus, one GIN
+lookup each, and searches only the rare ones: `chatgpt` went from 0 to 18
+rows in the pool, `salt lake` from 14 to 39. When nothing in the question is
+rare, the two rarest lexemes survive so the arm never goes empty.
+
+What still misses, and why it is written down: a key that is a date, since
+dates are not lexemes and belong to the date filter instead, and a key that
+is a phrase of common words. The first is fixed by parsing a full ISO date
+as a one-day filter, which cut one question's candidate set from a year to
+a day. The second is open.
+
 **Date parsing must be conservative.** A wrong date filter does not degrade
 an answer, it removes it, and the user sees a confident "nothing found"
 instead of a mistake. So it fires only on an explicit year or an unambiguous
