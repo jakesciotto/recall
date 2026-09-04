@@ -169,6 +169,9 @@ class Mbox(Source):
                     "sender": _addr(_header(msg, "From")),
                     "at": _iso(msg),
                     "text": body,
+                    # Gmail marks your own mail with the Sent label. Without
+                    # this the user tops their own sender table.
+                    "mine": "Sent" in labels,
                 })
         return threads
 
@@ -231,11 +234,14 @@ def trend_chunks(threads, contacts, budget, tz):
             thread_year.setdefault(trends._local(first, tz).year, 0)
             thread_year[trends._local(first, tz).year] += 1
     for year, items in trends.by_year(msgs, at, tz).items():
-        senders = collections.Counter(m["sender"] for m in items if m.get("sender"))
+        mine = sum(1 for m in items if m.get("mine"))
+        senders = collections.Counter(m["sender"] for m in items
+                                      if m.get("sender") and not m.get("mine"))
         lines = [
-            f"{thread_year.get(year, 0):,} threads, {len(items):,} messages.",
+            f"{thread_year.get(year, 0):,} threads, {len(items):,} messages, "
+            f"you sent {mine:,}.",
             trends.describe_months(trends.month_counts(items, at, tz)),
-            "Top senders: " + ", ".join(
+            "Top senders to you: " + ", ".join(
                 f"{label(a, contacts)} ({n:,}, "
                 f"{'service' if trends.looks_like_service(a) else 'person'})"
                 for a, n in trends.top(senders)),

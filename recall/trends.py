@@ -151,3 +151,20 @@ def chunks(source, year, lines, budget, tz, participants=()):
             date_confidence="period",
             participants=list(participants),
         )
+
+
+def all_time_chunks(source, first_year, lines, budget, tz, participants=()):
+    """One rollup across every year, for the questions that name no year."""
+    zone_name = getattr(tz, "key", None) or str(tz)
+    head = lambda part: (f"[all years, {source} trends{part}, times in {zone_name}]\n"
+                         f"All-time rollup computed from every {source} record. "
+                         f"Counts are exact.")
+    for suffix, text in parts(lines, budget, head):
+        yield Chunk(
+            ref=f"{source}:trends:all{suffix}",
+            text=text,
+            source=source,
+            occurred_at=f"{first_year}-01-01T00:00:00Z",
+            date_confidence="period",
+            participants=list(participants),
+        )

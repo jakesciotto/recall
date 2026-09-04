@@ -143,6 +143,16 @@ def mbox_file(d, messages):
     return path
 
 
+class TestMboxKnowsYourOwnMail(unittest.TestCase):
+    def test_the_sent_label_marks_a_message_as_yours(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = mbox_file(d, [("1", "hi")])
+            raw = path.read_text().replace("Subject: s", "Subject: s\nX-Gmail-Labels: Sent")
+            path.write_text(raw)
+            threads = mbox.Mbox()._kept(path)
+        self.assertTrue(threads["1"][0]["mine"])
+
+
 class TestMboxRefsAreUnique(unittest.TestCase):
     """One real mailbox lost 1,387 rows to 729 colliding refs. A thread of
     one message longer than the budget splits into parts, and the part
@@ -839,7 +849,8 @@ class TestMessageTrends(unittest.TestCase):
         from zoneinfo import ZoneInfo
         cs = list(imessage.trend_chunks(self.rows(), {"+15550001": "Ada"},
                                         5000, ZoneInfo("America/Denver")))
-        self.assertEqual([c.ref for c in cs], ["messages:trends:2023"])
+        self.assertEqual([c.ref for c in cs],
+                         ["messages:trends:2023", "messages:trends:all"])
         return cs[0].text
 
     def test_the_busiest_weekday_is_named(self):
@@ -864,6 +875,27 @@ class TestMessageTrends(unittest.TestCase):
         from zoneinfo import ZoneInfo
         cs = list(imessage.trend_chunks(self.rows(), {}, 5000, ZoneInfo("UTC")))
         self.assertEqual(set(cs[0].participants), {"+15550001", "+15550002"})
+
+    def test_sent_only_weekdays_are_reported_too(self):
+        """"Which day did I text the most" reads as sent. The first answer
+        declined because the table gave sent and received together."""
+        self.assertIn("Sent only, busiest day of the week:", self.trends())
+
+    def test_an_all_time_rollup_spans_the_years(self):
+        """A streak that crosses New Year is cut by a per-year table."""
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+        start = dt.datetime(2023, 12, 30, 12, tzinfo=dt.timezone.utc)
+        rows = [{"rowid": i, "thread": "t", "handle": "+15550009",
+                 "at": (start + dt.timedelta(days=i)).timestamp(),
+                 "mine": False, "text": "x"} for i in range(4)]
+        # days 12-30, 12-31, 01-01, 01-02: a streak of 4 across the year end
+        cs = list(imessage.trend_chunks(rows, {}, 5000, ZoneInfo("UTC")))
+        refs = [c.ref for c in cs]
+        self.assertIn("messages:trends:all", refs)
+        allc = next(c for c in cs if c.ref.endswith(":all"))
+        self.assertIn("+15550009 4 days (2023-12-30 to 2024-01-02)", allc.text)
+        self.assertIn("within the year", next(c for c in cs if c.ref.endswith("2023")).text)
 
 
 class TestTwitterTrends(unittest.TestCase):
@@ -890,8 +922,9 @@ class TestEmailTrends(unittest.TestCase):
             "2": [{"sender": "ada@example.org", "at": "2021-05-02T10:00:00Z",
                    "subject": "s", "text": "t"}] * 2,
         }
-        cs = list(mbox.trend_chunks(threads, {"ada@example.org": "Ada"}, 5000,
-                                    ZoneInfo("UTC")))
+        cs = [c for c in mbox.trend_chunks(threads, {"ada@example.org": "Ada"},
+                                           5000, ZoneInfo("UTC"))
+              if not c.ref.endswith(":all")]
         self.assertEqual([c.ref for c in cs], ["email:trends:2021"])
         text = cs[0].text
         self.assertIn("2 threads", text)
@@ -899,3 +932,19 @@ class TestEmailTrends(unittest.TestCase):
         self.assertIn("noreply@shop.example (3, service)", text)
         self.assertIn("Ada (2, person)", text)
         self.assertIn("busiest month: March", text)
+
+    def test_your_own_sent_mail_is_not_a_top_sender(self):
+        """The mailbox holds Sent mail, so the user topped the senders and
+        the answer to "who filled my inbox" was the user."""
+        from zoneinfo import ZoneInfo
+        threads = {
+            "1": [{"sender": "me@example.org", "at": "2021-03-01T10:00:00Z",
+                   "subject": "s", "text": "t", "mine": True}] * 9,
+            "2": [{"sender": "ada@example.org", "at": "2021-05-02T10:00:00Z",
+                   "subject": "s", "text": "t", "mine": False}] * 2,
+        }
+        [c] = [c for c in mbox.trend_chunks(threads, {}, 5000, ZoneInfo("UTC"))
+               if c.ref.endswith("2021")]
+        self.assertNotIn("me@example.org", c.text)
+        self.assertIn("you sent 9", c.text)
+        self.assertIn("ada@example.org (2, person)", c.text)

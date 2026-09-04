@@ -138,24 +138,47 @@ def trend_chunks(rows, contacts, budget, tz):
     from ..naming import label
     contacts = contacts or {}
     at = lambda r: r["at"]
-    for year, items in trends.by_year(rows, at, tz).items():
-        sent = sum(1 for r in items if r["mine"])
-        by_handle = collections.Counter(r["handle"] for r in items if r["handle"])
+
+    def streak_lines(items):
         days = collections.defaultdict(set)
         for r in items:
             if r["handle"]:
                 days[r["handle"]].add(trends._local(r["at"], tz).date())
-        streaks = sorted(((trends.longest_streak(d), h) for h, d in days.items()),
-                         key=lambda x: -x[0][0])[:3]
+        best = sorted(((trends.longest_streak(d), h) for h, d in days.items()),
+                      key=lambda x: -x[0][0])[:3]
+        return ", ".join(f"{label(h, contacts)} {n} days ({a} to {b})"
+                         for (n, a, b), h in best if n)
+
+    def top_line(items):
+        by_handle = collections.Counter(r["handle"] for r in items if r["handle"])
+        return by_handle, "Most messaged contacts: " + ", ".join(
+            f"{label(h, contacts)} ({n:,})" for h, n in trends.top(by_handle))
+
+    years = trends.by_year(rows, at, tz)
+    for year, items in years.items():
+        sent = sum(1 for r in items if r["mine"])
+        by_handle, top = top_line(items)
         lines = [
             f"{len(items):,} messages: {sent:,} sent, {len(items) - sent:,} received.",
             trends.describe_weekdays(trends.weekday_counts(items, at, tz)),
+            "Sent only, " + trends.describe_weekdays(
+                trends.weekday_counts([r for r in items if r["mine"]], at, tz)),
             trends.describe_months(trends.month_counts(items, at, tz)),
-            "Most messaged contacts: " + ", ".join(
-                f"{label(h, contacts)} ({n:,})" for h, n in trends.top(by_handle)),
-            "Longest daily messaging streaks: " + ", ".join(
-                f"{label(h, contacts)} {n} days ({a} to {b})"
-                for (n, a, b), h in streaks if n),
+            top,
+            "Longest daily messaging streaks within the year: " + streak_lines(items),
         ]
         yield from trends.chunks("messages", year, lines, budget, tz,
                                  participants=sorted(by_handle))
+
+    # All time, because a streak that crosses New Year is cut by a per-year
+    # table and "which contact shows the longest streak" names no year.
+    if years:
+        dated = [r for r in rows if r.get("at") is not None]
+        by_handle, top = top_line(dated)
+        lines = [
+            f"{len(dated):,} messages across {min(years)} to {max(years)}.",
+            top,
+            "Longest daily messaging streaks across all years: " + streak_lines(dated),
+        ]
+        yield from trends.all_time_chunks("messages", min(years), lines, budget, tz,
+                                          participants=sorted(by_handle))
