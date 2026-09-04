@@ -10,6 +10,12 @@ import zipfile
 from recall.sources import base, files, health, imessage, mbox, twitter
 
 
+def regular(chunks):
+    """Every source now yields a yearly trends chunk on top of its regular
+    ones. Tests that pin the regular chunks exclude those here."""
+    return [c for c in chunks if ":trends:" not in c.ref]
+
+
 class TestMboxSeparator(unittest.TestCase):
     """A new message starts at a line beginning "From " followed by an
     address and a date. "From now on..." at the start of a body line is
@@ -157,7 +163,7 @@ class TestMboxRefsAreUnique(unittest.TestCase):
         already stored."""
         with tempfile.TemporaryDirectory() as d:
             path = mbox_file(d, [("222", "short")])
-            cs = list(mbox.Mbox().chunks(path, 3000))
+            cs = regular(mbox.Mbox().chunks(path, 3000))
         self.assertEqual([c.ref for c in cs], ["email:222"])
 
     def test_no_chunk_exceeds_the_budget_across_message_sizes(self):
@@ -179,7 +185,7 @@ class TestMboxRefsAreUnique(unittest.TestCase):
             path = mbox_file(d, [("555", "body")])
             raw = path.read_text().replace("Subject: s", "Subject: " + "S" * 5000)
             path.write_text(raw)
-            cs = list(mbox.Mbox().chunks(path, 2000))
+            cs = regular(mbox.Mbox().chunks(path, 2000))
         self.assertEqual(len(cs), 1)
         self.assertLessEqual(len(cs[0].text), 2000)
         self.assertIn("body", cs[0].text)
@@ -342,7 +348,7 @@ class TestTweetGrouping(unittest.TestCase):
 
     def chunks(self, tweets, budget=5000):
         with tempfile.TemporaryDirectory() as d:
-            return list(twitter.Twitter().chunks(
+            return regular(twitter.Twitter().chunks(
                 twitter_export(d, tweets), budget))
 
     def test_two_tweets_on_one_day_make_one_chunk(self):
@@ -475,7 +481,7 @@ class TestTwitterDetection(unittest.TestCase):
             path = twitter_export(d, [tweet("a")],
                                   [conversation("c1", [dm("1", "999", "hi")])],
                                   account=False)
-            self.assertEqual(len(list(twitter.Twitter().chunks(path, 5000))), 2)
+            self.assertEqual(len(regular(twitter.Twitter().chunks(path, 5000))), 2)
 
 
 HEALTH_XML = ('<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -803,3 +809,93 @@ class TestPdfWithoutPdftotext(unittest.TestCase):
                 self.assertEqual(files.read_text(pdf), "")
         self.assertEqual(err.getvalue().count("pdftotext"), 1)
         self.assertIn("poppler", err.getvalue())
+
+
+class TestMessageTrends(unittest.TestCase):
+    """"Which day of the week did I text the most in 2023" cannot be
+    answered from eight chunks. A yearly rollup answers it exactly."""
+
+    def rows(self):
+        import datetime as dt
+        base = dt.datetime(2023, 3, 6, 18, 0, tzinfo=dt.timezone.utc)  # a Monday, noon Denver
+        rows = []
+        rid = 0
+        # Ada: 5 consecutive days, Mondays weighted.
+        for d in range(5):
+            for _ in range(3 if d == 0 else 1):
+                rid += 1
+                rows.append({"rowid": rid, "thread": "t1", "handle": "+15550001",
+                             "at": (base + dt.timedelta(days=d)).timestamp(),
+                             "mine": rid % 2 == 0, "text": "hi"})
+        # Bob: two days with a gap.
+        for d in (0, 2):
+            rid += 1
+            rows.append({"rowid": rid, "thread": "t2", "handle": "+15550002",
+                         "at": (base + dt.timedelta(days=d)).timestamp(),
+                         "mine": False, "text": "yo"})
+        return rows
+
+    def trends(self):
+        from zoneinfo import ZoneInfo
+        cs = list(imessage.trend_chunks(self.rows(), {"+15550001": "Ada"},
+                                        5000, ZoneInfo("America/Denver")))
+        self.assertEqual([c.ref for c in cs], ["messages:trends:2023"])
+        return cs[0].text
+
+    def test_the_busiest_weekday_is_named(self):
+        self.assertIn("busiest day of the week: Monday", self.trends())
+
+    def test_top_contacts_use_names_and_counts(self):
+        text = self.trends()
+        self.assertIn("Ada (7)", text)
+        self.assertIn("+15550002 (2)", text)
+
+    def test_the_longest_streak_is_named_with_its_dates(self):
+        text = self.trends()
+        self.assertIn("Ada 5 days (2023-03-06 to 2023-03-10)", text)
+
+    def test_sent_and_received_are_split(self):
+        text = self.trends()
+        self.assertIn("9 messages", text)
+        self.assertIn("sent", text)
+        self.assertIn("received", text)
+
+    def test_participants_carry_the_raw_handles(self):
+        from zoneinfo import ZoneInfo
+        cs = list(imessage.trend_chunks(self.rows(), {}, 5000, ZoneInfo("UTC")))
+        self.assertEqual(set(cs[0].participants), {"+15550001", "+15550002"})
+
+
+class TestTwitterTrends(unittest.TestCase):
+    def test_tweets_per_year_with_peak_hour_and_retweet_share(self):
+        from zoneinfo import ZoneInfo
+        tweets = [tweet("hello", "Wed Jun 20 03:00:00 +0000 2018")] * 4 + \
+                 [tweet("RT @x: y", "Wed Jun 20 15:00:00 +0000 2018")]
+        cs = list(twitter.trend_chunks(tweets, [], {}, "111", 5000,
+                                       ZoneInfo("America/Denver")))
+        self.assertEqual([c.ref for c in cs], ["twitter:trends:2018"])
+        text = cs[0].text
+        self.assertIn("5 tweets", text)
+        self.assertIn("1 retweet", text)
+        self.assertIn("peak hour 21:00", text)     # 03:00 UTC is 21:00 in Denver in June
+        self.assertIn("busiest day of the week: Tuesday", text)
+
+
+class TestEmailTrends(unittest.TestCase):
+    def test_top_senders_are_labelled_person_or_service(self):
+        from zoneinfo import ZoneInfo
+        threads = {
+            "1": [{"sender": "noreply@shop.example", "at": "2021-03-01T10:00:00Z",
+                   "subject": "s", "text": "t"}] * 3,
+            "2": [{"sender": "ada@example.org", "at": "2021-05-02T10:00:00Z",
+                   "subject": "s", "text": "t"}] * 2,
+        }
+        cs = list(mbox.trend_chunks(threads, {"ada@example.org": "Ada"}, 5000,
+                                    ZoneInfo("UTC")))
+        self.assertEqual([c.ref for c in cs], ["email:trends:2021"])
+        text = cs[0].text
+        self.assertIn("2 threads", text)
+        self.assertIn("5 messages", text)
+        self.assertIn("noreply@shop.example (3, service)", text)
+        self.assertIn("Ada (2, person)", text)
+        self.assertIn("busiest month: March", text)

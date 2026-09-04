@@ -99,7 +99,7 @@ def parse_events(text):
                             body, re.S | re.M):
         ev = {"uid": "", "summary": "", "description": "", "location": "",
               "rrule": "", "recurrence_id": "", "status": "",
-              "dtstart_params": {}, "dtstart_value": "",
+              "dtstart_params": {}, "dtstart_value": "", "created": "",
               "attendees": [], "cn": {}}
         for line in block.strip().split("\n"):
             if ":" not in line:
@@ -122,6 +122,8 @@ def parse_events(text):
             elif name == "DTSTART":
                 ev["dtstart_params"] = params
                 ev["dtstart_value"] = value.strip()
+            elif name == "CREATED":
+                ev["created"] = value.strip()
             elif name == "ATTENDEE":
                 email = re.sub(r"^mailto:", "", value.strip(), flags=re.I)
                 if not email:
@@ -347,5 +349,49 @@ class ICal(Source):
         return sorted(texts, key=len, reverse=True)[:SAMPLE_COUNT]
 
     def chunks(self, path, budget, contacts=None):
-        yield from build(parse_events(_read(path)), budget, contacts,
-                         str(path))
+        from .. import trends
+        events = parse_events(_read(path))
+        yield from build(events, budget, contacts, str(path))
+        yield from trend_chunks(events, budget, trends.zone())
+
+
+def created_time(ev):
+    raw = ev.get("created") or ""
+    try:
+        return dt.datetime.strptime(raw[:15], "%Y%m%dT%H%M%S").replace(
+            tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+
+
+def trend_chunks(events, budget, tz):
+    """One rollup per year: volume, all-day share, recurring events, busiest
+    month, and how far ahead events were created. See trends.py."""
+    import statistics
+    from .. import trends
+    timed = [(event_time(ev), ev) for ev in events]
+    timed = [(w, a, ev) for (w, a), ev in timed if w is not None]
+    at = lambda item: item[0]
+    for year, items in trends.by_year(timed, at, tz).items():
+        all_day = sum(1 for _, a, _ in items if a)
+        recurring = sorted({f"{_oneline(ev['summary'])} ({_repeat(ev)})"
+                            for _, _, ev in items if _repeat(ev)})
+        leads = []
+        for when, _, ev in items:
+            made = created_time(ev)
+            if made:
+                leads.append(max((when - made).days, 0))
+        lines = [
+            f"{len(items):,} events, {all_day:,} all-day, {len(items) - all_day:,} timed.",
+            trends.describe_months(trends.month_counts(items, at, tz)),
+            "Recurring: " + (", ".join(recurring) if recurring else "none"),
+        ]
+        if leads:
+            same = sum(1 for d in leads if d == 0)
+            week = sum(1 for d in leads if 1 <= d <= 7)
+            more = len(leads) - same - week
+            lines.append(
+                f"How far ahead events were created: median lead time "
+                f"{statistics.median(leads):.0f} days; same day: {same}, "
+                f"within a week: {week}, more than a week: {more}.")
+        yield from trends.chunks("calendar", year, lines, budget, tz)

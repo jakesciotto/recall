@@ -93,8 +93,10 @@ class IMessage(Source):
         return [r["text"] for r in rows[:8]]
 
     def chunks(self, path, budget, contacts=None):
+        from .. import trends
         rows, names = self._rows(path)
         yield from self._windows(rows, names, contacts, budget)
+        yield from trend_chunks(rows, contacts, budget, trends.zone())
 
     def _windows(self, rows, names, contacts, budget):
         from ..chunking import parts, sessions
@@ -125,3 +127,35 @@ class IMessage(Source):
                     participants=who,
                     thread=first["thread"],
                 )
+
+
+def trend_chunks(rows, contacts, budget, tz):
+    """One rollup per year: volume, busiest weekday and month, top contacts,
+    and the longest daily streak per contact. See trends.py."""
+    import collections
+    import datetime as dt
+    from .. import trends
+    from ..naming import label
+    contacts = contacts or {}
+    at = lambda r: r["at"]
+    for year, items in trends.by_year(rows, at, tz).items():
+        sent = sum(1 for r in items if r["mine"])
+        by_handle = collections.Counter(r["handle"] for r in items if r["handle"])
+        days = collections.defaultdict(set)
+        for r in items:
+            if r["handle"]:
+                days[r["handle"]].add(trends._local(r["at"], tz).date())
+        streaks = sorted(((trends.longest_streak(d), h) for h, d in days.items()),
+                         key=lambda x: -x[0][0])[:3]
+        lines = [
+            f"{len(items):,} messages: {sent:,} sent, {len(items) - sent:,} received.",
+            trends.describe_weekdays(trends.weekday_counts(items, at, tz)),
+            trends.describe_months(trends.month_counts(items, at, tz)),
+            "Most messaged contacts: " + ", ".join(
+                f"{label(h, contacts)} ({n:,})" for h, n in trends.top(by_handle)),
+            "Longest daily messaging streaks: " + ", ".join(
+                f"{label(h, contacts)} {n} days ({a} to {b})"
+                for (n, a, b), h in streaks if n),
+        ]
+        yield from trends.chunks("messages", year, lines, budget, tz,
+                                 participants=sorted(by_handle))

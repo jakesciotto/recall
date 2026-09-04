@@ -175,8 +175,11 @@ class Mbox(Source):
     def chunks(self, path, budget, contacts=None):
         from ..chunking import pack
         from ..naming import label
+        from .. import trends
         contacts = contacts or {}
-        for tid, msgs in sorted(self._kept(path).items()):
+        threads = self._kept(path)
+        yield from trend_chunks(threads, contacts, budget, trends.zone())
+        for tid, msgs in sorted(threads.items()):
             msgs.sort(key=lambda m: m["at"] or "")
             first = msgs[0]
             subject = (first["subject"] or "(no subject)").strip()
@@ -210,3 +213,32 @@ class Mbox(Source):
                     participants=who,
                     thread=str(tid),
                 )
+
+
+def trend_chunks(threads, contacts, budget, tz):
+    """One rollup per year: thread and message volume, busiest month, and
+    the top senders labelled person or service. See trends.py."""
+    import collections
+    from .. import trends
+    from ..naming import label
+    contacts = contacts or {}
+    msgs = [m for ms in threads.values() for m in ms if m.get("at")]
+    at = lambda m: m["at"]
+    thread_year = {}
+    for tid, ms in threads.items():
+        first = min((m["at"] for m in ms if m.get("at")), default=None)
+        if first:
+            thread_year.setdefault(trends._local(first, tz).year, 0)
+            thread_year[trends._local(first, tz).year] += 1
+    for year, items in trends.by_year(msgs, at, tz).items():
+        senders = collections.Counter(m["sender"] for m in items if m.get("sender"))
+        lines = [
+            f"{thread_year.get(year, 0):,} threads, {len(items):,} messages.",
+            trends.describe_months(trends.month_counts(items, at, tz)),
+            "Top senders: " + ", ".join(
+                f"{label(a, contacts)} ({n:,}, "
+                f"{'service' if trends.looks_like_service(a) else 'person'})"
+                for a, n in trends.top(senders)),
+        ]
+        yield from trends.chunks("email", year, lines, budget, tz,
+                                 participants=sorted(senders))

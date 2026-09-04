@@ -129,9 +129,12 @@ class Twitter(Source):
         return bodies[:8]
 
     def chunks(self, path, budget, contacts=None):
+        from .. import trends
         tweets, convos, me = self._export(path)
         yield from self._tweet_chunks(tweets, budget)
         yield from self._dm_chunks(convos, handle_map(tweets), me, budget)
+        yield from trend_chunks(tweets, convos, handle_map(tweets), me, budget,
+                                trends.zone())
 
     def _tweet_chunks(self, tweets, budget):
         """A retweet arrives as "RT @someone: ..." and keeps that prefix. It
@@ -171,3 +174,27 @@ class Twitter(Source):
                     participants=senders,
                     thread=first["thread"],
                 )
+
+
+def trend_chunks(tweets, conversations, handles, me, budget, tz):
+    """One rollup per year: tweet volume and retweet share, the hours and
+    weekdays you post, and DM volume by handle. See trends.py."""
+    import collections
+    from .. import trends
+    at = lambda t: _tweet_at(t)
+    dms = dm_records(conversations, handles, me)
+    dm_years = trends.by_year(dms, lambda r: r["at"], tz)
+    for year, items in trends.by_year(tweets, at, tz).items():
+        rts = sum(1 for t in items if t["tweet"]["full_text"].startswith("RT @"))
+        year_dms = dm_years.get(year, [])
+        by_handle = collections.Counter(r["handle"] for r in year_dms if not r["mine"])
+        lines = [
+            f"{len(items):,} tweets, {rts:,} retweets, {len(items) - rts:,} original.",
+            "When you tweet: " + trends.describe_hours(items, at, tz) + ".",
+            trends.describe_weekdays(trends.weekday_counts(items, at, tz)),
+            trends.describe_months(trends.month_counts(items, at, tz)),
+            f"Direct messages: {len(year_dms):,}" + (
+                "; most with " + ", ".join(f"{h} ({n})" for h, n in trends.top(by_handle))
+                if by_handle else ""),
+        ]
+        yield from trends.chunks("twitter", year, lines, budget, tz)

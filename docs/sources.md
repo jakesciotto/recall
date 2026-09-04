@@ -25,6 +25,17 @@ context, the event gives detail, and descriptions hold meeting agendas and
 forwarded mail, the highest-signal text in the file. A recurring event is
 listed once, in its starting month, with its rule named.
 
+Every source with timestamps also writes one **trends** chunk per year:
+volume, busiest weekday and month, and what that source can say about
+habits. Messages add the most-messaged contacts and the longest daily
+streaks; twitter adds the hours you post; email adds the top senders,
+labelled person or service by a heuristic; calendar adds recurring events
+and how far ahead events were created. "On which day of the week did I
+text the most in 2023" cannot be answered from eight retrieved chunks, and
+a model that tries is over-claiming, so the answer is precomputed once and
+retrieved like anything else. Years, weekdays and hours are local:
+`RECALL_TZ` names the zone, and every rollup names it in its text.
+
 Drop any `*.vcf` under the data directory as well. It is not a source and
 produces no chunks; every adapter uses it to show contact names instead of
 phone numbers and email addresses. On one corpus this named 52 percent of all

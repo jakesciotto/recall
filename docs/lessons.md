@@ -138,6 +138,16 @@ seven hours. One more that bites on refs: `RECURRENCE-ID` marks one edited
 occurrence and reuses the parent `UID`, so without a suffix the two collide
 on the unique ref and one is silently lost.
 
+**An aggregate question needs a table, not a sample.** "Which day of the
+week did I text the most in 2023" reached the model as eight chunks out of
+a hundred thousand, and the model answered anyway. The judge called it
+grounded. The person reading it called it a lazy answer, and said so: the
+data is there. So each source now rolls its year up once, into one chunk
+that says busiest weekday, top contacts, longest streak, peak posting hour,
+top senders, recurring events, and retrieval finds a table where it used to
+find a guess. The rollup names its timezone, because the stored timestamps
+are UTC and a weekday is a local fact.
+
 ## Naming people
 
 **Export your address book from wherever it actually lives.** The same corpus

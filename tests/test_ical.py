@@ -269,7 +269,33 @@ class TestAdapter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = pathlib.Path(d) / "cal.ics"
             path.write_text(ics(vevent()))
-            cs = list(ical.ICal().chunks(path, 5000))
+            cs = [c for c in ical.ICal().chunks(path, 5000)
+                  if ":trends:" not in c.ref]
             self.assertEqual([c.ref for c in cs], ["calendar:2019-06"])
             self.assertEqual(cs[0].source, "calendar")
             self.assertEqual(cs[0].path, str(path))
+
+
+class TestCalendarTrends(unittest.TestCase):
+    def test_lead_time_recurring_and_volume(self):
+        from zoneinfo import ZoneInfo
+        events = []
+        for i, (start, created) in enumerate([
+                ("20230605T140000Z", "20230601T120000Z"),   # 4 days ahead
+                ("20230612T140000Z", "20230612T090000Z"),   # same day
+                ("20230619T140000Z", "20230501T120000Z"),   # 7 weeks ahead
+        ]):
+            ev = vevent(uid=f"e{i}", start=start, summary=f"Event {i}")
+            ev = ev.replace("END:VEVENT", f"CREATED:{created}\r\nEND:VEVENT")
+            events.append(ev)
+        weekly = vevent(uid="w", summary="BJJ", start="20230103T010000Z",
+                        rrule="FREQ=WEEKLY")
+        parsed = ical.parse_events(ics(*events, weekly))
+        cs = list(ical.trend_chunks(parsed, 5000, ZoneInfo("America/Denver")))
+        self.assertEqual([c.ref for c in cs], ["calendar:trends:2023"])
+        text = cs[0].text
+        self.assertIn("4 events", text)
+        self.assertIn("Recurring: BJJ (weekly)", text)
+        self.assertIn("median lead time", text)
+        self.assertIn("4 days", text)
+        self.assertIn("same day: 1", text)
