@@ -143,6 +143,54 @@ class TestJudgeRow(unittest.TestCase):
         self.assertEqual(chat.call_args.kwargs["model"], "critic")
 
 
+class TestUncitedAnswers(unittest.TestCase):
+    """A claim with no citation cannot trace to a source, so a rule says
+    "no" before any model is asked. A decline is the correct uncited answer
+    and still goes to the model. On the first labelled batch every uncited
+    answer was a decline, so the rule fired on none of them."""
+
+    def test_an_uncited_claim_is_not_grounded_and_no_model_is_asked(self):
+        chat = mock.Mock(return_value='{"grounded": "yes"}')
+        out = judge.judge_row(dict(ROW, answer="You raced on Sunday."), SOURCES,
+                              chat=chat, model="m")
+        self.assertEqual(out["judge_grounded"], "no")
+        self.assertIn("cites no source", out["judge_note"])
+        chat.assert_not_called()
+
+    def test_a_rule_verdict_names_no_model(self):
+        """A query that measures one model against the human verdicts must
+        not count a row the model never saw."""
+        out = judge.judge_row(dict(ROW, answer="You raced on Sunday."), SOURCES,
+                              chat=mock.Mock(), model="m")
+        self.assertEqual(out["judge_model"], "rule")
+
+    def test_a_decline_without_citations_still_goes_to_the_model(self):
+        """Declining is the correct uncited answer, and the model judges
+        whether the sources really held nothing."""
+        chat = mock.Mock(return_value='{"grounded": "yes", "retrieval": "no"}')
+        out = judge.judge_row(dict(ROW, answer="The sources do not contain "
+                                                "the answer to this."), SOURCES,
+                              chat=chat, model="m")
+        chat.assert_called_once()
+        self.assertEqual(out["judge_grounded"], "yes")
+
+    def test_a_cited_answer_goes_to_the_model(self):
+        chat = mock.Mock(return_value='{"grounded": "partly"}')
+        out = judge.judge_row(dict(ROW, answer="You raced【1】."), SOURCES,
+                              chat=chat, model="m")
+        chat.assert_called_once()
+        self.assertEqual(out["judge_grounded"], "partly")
+
+    def test_declines_are_recognised_in_a_few_shapes(self):
+        for text in ("I cannot find that in the sources.",
+                     "No source mentions quantum computing.",
+                     "There is no information about this in the archive.",
+                     "The archive returned no sources."):
+            with self.subTest(text=text):
+                self.assertTrue(judge.is_decline(text))
+        self.assertFalse(judge.is_decline("You flew to Denver on Monday."))
+
+
 class TestSave(unittest.TestCase):
     def test_it_writes_only_the_judge_columns(self):
         """verdict and note belong to the human. The judge must not be able

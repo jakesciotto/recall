@@ -37,6 +37,15 @@ and renumbering them makes every grounding judgment wrong.
 own output shows self-preference bias. `RECALL_JUDGE_MODEL` defaults to the
 answering model only because recall does not choose your models for you.
 
+**One rule runs before the model.** An answer that cites nothing and does
+not decline is not grounded, and no model is asked: a claim with no
+citation cannot trace to a source, whatever a model says. A decline is the
+correct uncited answer, so it still goes to the model, which judges whether
+the sources really held nothing. A rule verdict writes `rule` in
+`judge_model`, so a query that measures one model never counts a row that
+model did not see. On the first labelled batch of 20, every uncited answer
+was a decline, so the rule fired on none of them.
+
 The judge writes only the `judge_*` columns. It cannot write `verdict` or
 `note`, even by accident. Its columns carry no CHECK constraint: a model
 populates them, a CHECK would fail a whole batch on one unexpected word,
@@ -109,6 +118,27 @@ So run both. Label a few dozen rows by hand, then compare `verdict` against
 SELECT judge_grounded, verdict, count(*)
 FROM query_log
 WHERE verdict IS NOT NULL AND judged_at IS NOT NULL
+GROUP BY 1, 2 ORDER BY 1, 2;
+```
+
+**Compare like with like.** On the first labelled batch of 20, the judge
+agreed with the human on 10, and 6 of the 7 false passes were declines.
+On a decline, `judge_grounded` is `yes` by definition, because a decline
+makes no claim. The human `verdict` grades the system instead: a decline
+over sources that held the answer is a hedge, and a decline over sources
+that did not is a retrieval failure. Neither is a grounding failure. So
+split the comparison. Cited answers measure the judge's grounding call.
+Declines measure `judge_hedged` and `judge_retrieval`, and the judge was
+inconsistent there: on one decline it wrote retrieval `yes` and hedged
+`no`, which its own definition of hedged forbids.
+
+```sql
+-- Cited answers only: the judge's grounding call against the human verdict.
+SELECT judge_grounded, verdict, count(*)
+FROM query_log q
+WHERE verdict IS NOT NULL AND judged_at IS NOT NULL
+  AND EXISTS (SELECT 1 FROM query_candidate c
+              WHERE c.query_id = q.id AND c.cited)
 GROUP BY 1, 2 ORDER BY 1, 2;
 ```
 

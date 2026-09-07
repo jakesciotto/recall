@@ -22,8 +22,9 @@ Nothing here touches chunk, and nothing here runs on the answer path.
 
 import datetime as dt
 import json
+import re
 
-from . import answer, config, db
+from . import answer, config, db, render
 
 # Eight sources at 8,000 characters is a 64,000 character prompt. The judge
 # is told the text is cut, because a judge that does not know will call a
@@ -65,6 +66,19 @@ question_type: recall is a fact from the archive, date is a when question,
 summary asks for a synthesis, open is anything broader."""
 
 _TRUNCATED = " ...[truncated]"
+
+# An answer that declines says one of a few things. The list is short on
+# purpose: a decline it misses goes to the model, which is where every
+# answer went before this rule existed.
+_DECLINE = re.compile(
+    r"\b(?:cannot find|can't find|could not find|not contain|"
+    r"no (?:source|sources|information|record|mention)|nothing in the)\b",
+    re.I)
+
+
+def is_decline(text):
+    """Whether the answer says the sources do not hold the answer."""
+    return bool(_DECLINE.search(text or ""))
 
 
 def speaker_rule(label):
@@ -169,11 +183,27 @@ def judge_model():
 def judge_row(row, sources, chat=None, model=None):
     """Judge one logged answer. Never raises.
 
+    An answer that cites nothing and does not decline is not grounded, and
+    no model is asked: a claim with no citation cannot trace to a source,
+    whatever a model says. A decline is the correct uncited answer, so it
+    goes to the model, which judges whether the sources really held
+    nothing. On the first labelled batch of 20 every uncited answer was a
+    decline, so the rule fired on none of them. The rule writes "rule" as
+    the judge model, so a query measuring one model never counts a row that
+    model did not see.
+
     One dead request must not end a batch of two hundred, so a failure
     comes back as an 'unknown' verdict carrying the error in its note.
     """
     chat = chat or answer.chat
     model = model or judge_model()
+    text = row.get("answer") or ""
+    if not render._CITE.search(text) and not is_decline(text):
+        out = parse_verdict(None)
+        out["judge_grounded"] = "no"
+        out["judge_note"] = "cites no source and does not decline"
+        out["judge_model"] = "rule"
+        return out
     try:
         out = parse_verdict(chat(build_prompt(row, sources), model=model))
     except Exception as e:
