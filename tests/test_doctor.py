@@ -95,3 +95,30 @@ class TestDoctorChecksPdftotext(unittest.TestCase):
         text = self.doctor("/usr/bin/pdftotext")
         line = next(l for l in text.splitlines() if "pdftotext" in l)
         self.assertNotIn("FAIL", line)
+
+
+class TestDoctorNotesOptionalBinaries(unittest.TestCase):
+    """pdfinfo dates PDFs and antiword reads legacy .doc files. Documents
+    still index without them, so a missing one is a note, never a FAIL."""
+
+    def test_a_missing_optional_binary_is_a_note_not_a_failure(self):
+        import shutil
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as data:
+            args = types.SimpleNamespace(data=data)
+            with mock.patch.object(db, "connect",
+                                   side_effect=OSError("no database")), \
+                 mock.patch.object(chunking, "measure_density",
+                                   return_value=3.0), \
+                 mock.patch.object(embed, "embed",
+                                   lambda texts, timeout=60: [[0.0] * 1024]), \
+                 mock.patch.object(shutil, "which",
+                                   lambda name: "/usr/bin/pdftotext"
+                                   if name == "pdftotext" else None), \
+                 contextlib.redirect_stdout(out):
+                cli.cmd_doctor(args)
+        text = out.getvalue()
+        for name in ("pdfinfo", "antiword"):
+            line = next(l for l in text.splitlines() if name in l)
+            self.assertNotIn("FAIL", line)
+            self.assertIn("note", line)

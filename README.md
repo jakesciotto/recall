@@ -51,7 +51,7 @@ each adapter recognises its own files.
 | a Twitter/X archive | Tweets and DMs | X, Settings, Download an archive |
 | a Spotify export folder | Listening history | Spotify privacy page |
 | `export.zip` | Apple Health workouts | Health app, profile, Export |
-| `documents/` | PDFs, Office files, text | anywhere |
+| `documents/` | PDFs, Office files, legacy `.doc`, RTF, HTML, text | anywhere |
 | any `*.vcf` | Contact names | Contacts app, Export vCard |
 
 `recall doctor` lists what it found. Adding a source means writing one small
@@ -114,6 +114,9 @@ A GPU makes indexing far faster but nothing here requires one.
 PDFs need `pdftotext` from poppler (`apt install poppler-utils`,
 `dnf install poppler-utils`, `brew install poppler`). Without it every PDF is
 skipped; `recall doctor` says so, and the ingest prints one warning.
+`pdfinfo` from the same package dates PDFs by their embedded creation date,
+and `antiword` reads legacy `.doc` files. Both are optional: without them the
+PDFs date by path or mtime and the `.doc` files are skipped.
 
 ## Licence
 

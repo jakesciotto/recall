@@ -54,7 +54,8 @@ class Source:
 
     name = "unnamed"
 
-    # The LONGEST texts this source produces. Budgets calibrate from these.
+    # The LONGEST texts this source produces, and the DENSEST: a numeric
+    # table costs a token per character. Budgets calibrate from these.
     def samples(self, path):
         return []
 

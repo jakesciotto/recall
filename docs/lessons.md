@@ -67,13 +67,24 @@ ratio varies by a factor of three across ordinary content:
 | prose documents | 2.4 to 4.4 |
 | workout and sensor lines | 1.8 |
 | spreadsheet exports | 1.51 |
-| marketing and airline mail | **1.39** |
+| marketing and airline mail | 1.39 |
+| a price table, digits and commas | **1.00** |
 
 A 12,000 character budget set for prose is 8,633 tokens of dense mail, which
 an 8,192 token server rejects outright. That happened, three separate times,
 with three different ratios. `recall.chunking.calibrate` measures the real
 ratio against the real tokenizer instead, and takes the *worst* ratio in the
 sample rather than the average, because it is the dense tail that fails.
+
+**Sample the densest text, not only the longest.** The first sample rule was
+"the longest texts you produce", and it held until an 18 KB stock price CSV
+arrived at one token per character: too short for the longest list, and
+dense enough that every chunk under the character budget was over the
+token ceiling. The server rejected some with HTTP 400 and fell over on
+others. The documents adapter now samples the longest files and the files
+with the lowest share of letters, and the budget for that source fell from
+8,779 to about 5,700 characters. The cost is more chunks of prose; the
+alternative was silent loss of every numeric table.
 
 **Splitting a container on whole records is not enough.** One airline notice
 arrived as a single record of 188,218 characters, roughly 47,000 tokens, in a
@@ -313,8 +324,41 @@ sources". The tool looks like it ran. `sources.base.walk` uses `os.walk` with
 `followlinks=True` and remembers real paths, so a link back to a parent ends
 the walk instead of looping forever.
 
-**Do not trust file extensions.** A Photoshop file named `.pdf` becomes two
-million characters of noise. Sniff the content.
+**Do not trust file extensions.** A Photoshop file named `.pdf` became two
+million characters of noise and 474 chunks, because the extension map sent
+every unknown header down the text path. Read the header: a NUL byte or too
+few printable bytes in the first block means binary, which is what `file(1)`
+and git do. Two refinements that each cost a class of files: honour a byte
+order mark first, because UTF-16 ASCII is half NUL bytes and the guard would
+reject every such file; and try strict UTF-8 before the printable ratio,
+because a note in Japanese has no ASCII in it at all. The same archive held
+1,265 macOS `._*` resource forks carrying real extensions; skip those by name.
+
+**Date a document from its path before its mtime.** After a decade of copies
+and cloud syncs the mtime records the last sync, not the writing. A folder
+named `chicago-2018` is the user's own claim and wins; the creation date an
+application stamped into the file is next; the mtime is last, and the
+confidence label says which one it was. On one archive this moved documents
+with a real date from 21 percent to 76 percent. And read `pdfinfo` with
+`-isodates`: its default output is local time with the zone as a name, so
+parsing it as UTC shifts every date by the box's offset, silently.
+
+**Identify a document by its content, not its path.** A path-derived ref
+re-embeds a whole folder when it is renamed and indexes a duplicate twice.
+A content digest keeps the ref through a move and makes two copies one
+document.
+
+**A splitter that respects paragraphs must still cut one.** The document
+splitter broke on blank lines and never inside a paragraph, which was fine
+for prose and handed the loader one 22 million character chunk for a CSV
+export with no blank line in it. Sweep the input shape when the property is
+"never over budget": the same sweep showed the overlap tail pushing a chunk
+past the budget by up to its own length, and the path header added after
+the split doing the same by a few dozen characters. Cut an oversized
+paragraph, shrink the carried tail to the room the next paragraph leaves,
+and split to the budget minus the header. Separately, cap what one file
+contributes: thirty-one data exports held 64 percent of every character in
+an archive of 4,965 documents.
 
 **Never write a checkpoint when the work failed.** A captioning run wrote a
 "done" record on model failure. A server restart then made those files

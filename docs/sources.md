@@ -36,6 +36,37 @@ a model that tries is over-claiming, so the answer is precomputed once and
 retrieved like anything else. Years, weekdays and hours are local:
 `RECALL_TZ` names the zone, and every rollup names it in its text.
 
+## Documents
+
+`files` is the catch-all, and it is the adapter that meets the oldest and
+messiest part of an archive, so four rules live in it.
+
+**The header is read before the extension is trusted.** A Photoshop file
+named `.pdf`, a PDF named `.txt`, and a Word file named `.doc` that is really
+RTF all read correctly, because the first bytes decide. Anything that is not
+text or a known document yields nothing rather than noise. UTF-16 files with
+a byte order mark are decoded, not rejected as binary. Legacy `.doc` needs
+`antiword` on the path; without it those files are skipped and `doctor`
+says so.
+
+**Dates come from the path first.** A folder or file name holding a year, a
+month, or a season is your own claim about when the document belongs, and it
+beats everything. Then the creation date the writing application stamped
+into a PDF (`pdfinfo`, optional) or an Office file. The mtime is last, and
+`date_confidence` says `path`, `metadata`, or `mtime` so a guess never reads
+as a fact.
+
+**The ref follows the content.** Two copies of one file are one document,
+indexed once under the first path found. A moved or renamed file keeps its
+ref and is not re-embedded.
+
+**Your exclusions go in `documents/.recallignore`.** One pattern per line,
+`#` comments. A pattern without a slash matches a file or directory name at
+any depth (`drafts`, `*.bak`, `datamining.pdf`); a pattern with a slash
+matches the path relative to `documents/` (`finance/tax*`). Matching ignores
+case. Vendored code, caches, a `books` folder, and macOS `._*` forks are
+skipped without being listed.
+
 Drop any `*.vcf` under the data directory as well. It is not a source and
 produces no chunks; every adapter uses it to show contact names instead of
 phone numbers and email addresses. On one corpus this named 52 percent of all
@@ -54,9 +85,9 @@ class Journal(Source):
         return [d] if d.is_dir() else []
 
     def samples(self, path):
-        # The LONGEST texts you produce. Budgets are calibrated from these,
-        # and short samples measure nothing: the dense long ones are what
-        # overrun the context.
+        # The LONGEST texts you produce, and the DENSEST. Budgets are
+        # calibrated from these. Short prose measures nothing; a short
+        # numeric table measures the most, at a token per character.
         return [p.read_text()[:20000] for p in sorted(path.glob("*.md"))[:8]]
 
     def chunks(self, path, budget, contacts=None):

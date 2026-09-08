@@ -24,6 +24,10 @@ def _bad(label, detail=""):
     print(f"  FAIL  {label}{'  ' + detail if detail else ''}")
 
 
+def _note(label, detail=""):
+    print(f"  note  {label}{'  ' + detail if detail else ''}")
+
+
 def cmd_doctor(args):
     """Check every dependency and say exactly what to do about each one.
 
@@ -51,6 +55,16 @@ def cmd_doctor(args):
         _bad("pdftotext missing", "PDFs are skipped. Install poppler: "
              "apt/dnf poppler-utils, brew poppler")
         problems += 1
+    # Optional. Without pdfinfo a PDF dates by its path or mtime; without
+    # antiword a legacy .doc is skipped. Neither stops an ingest.
+    if shutil.which("pdfinfo"):
+        _ok("pdfinfo installed", "PDF creation dates will be read")
+    else:
+        _note("pdfinfo missing", "PDFs date by path or mtime; it ships with poppler")
+    if shutil.which("antiword"):
+        _ok("antiword installed", "legacy .doc files will be read")
+    else:
+        _note("antiword missing", "legacy .doc files are skipped; apt/dnf/brew antiword")
 
     from . import db
     # Without the driver the database check can only repeat the same fault.
