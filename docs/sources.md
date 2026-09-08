@@ -13,6 +13,7 @@ chunks does it produce?". That is why `recall ingest` needs no configuration.
 | `spotify` | `*Streaming_History_Audio*.json` | one month, with detail inside |
 | `health` | `export.xml`, or the `export.zip` around it | one month of workouts |
 | `calendar` | any `*.ics` | one month of events, plus one chunk per described event |
+| `activity` | `My Activity/*/MyActivity.html` or `.json` | one product and month, each day's entries inside |
 | `files` | a `documents/` directory | paragraph split with overlap |
 
 `health` opens `export.xml` only. The FHIR clinical records that Apple ships
@@ -30,7 +31,8 @@ volume, busiest weekday and month, and what that source can say about
 habits. Messages add the most-messaged contacts and the longest daily
 streaks; twitter adds the hours you post; email adds the top senders,
 labelled person or service by a heuristic; calendar adds recurring events
-and how far ahead events were created. "On which day of the week did I
+and how far ahead events were created; activity adds the hours you search
+and the searches you repeat most. "On which day of the week did I
 text the most in 2023" cannot be answered from eight retrieved chunks, and
 a model that tries is over-claiming, so the answer is precomputed once and
 retrieved like anything else. Years, weekdays and hours are local:
@@ -67,6 +69,28 @@ any depth (`drafts`, `*.bak`, `datamining.pdf`); a pattern with a slash
 matches the path relative to `documents/` (`finance/tax*`). Matching ignores
 case. Vendored code, caches, a `books` folder, and macOS `._*` forks are
 skipped without being listed.
+
+## Activity
+
+`activity` reads Google Takeout's My Activity export, one file per product:
+Search, Chrome, YouTube, Maps, Image Search, and whatever else the account
+used. Takeout writes HTML unless JSON is chosen at export time; both are
+read, and JSON is a tenth of the size. Every entry is a verb, a title, and a
+time. A month of one product is one chunk, with each day's entries listed
+under the day and repeats folded into a count, so "what was I researching
+in March 2021" reads one chunk and "when did I first look up X" finds the
+line. Link targets are dropped: the titles carry the meaning, and a title
+that is itself a URL keeps its host and path, never the query string. The
+map links Image Search attaches to each entry are a location trail and
+never reach a chunk.
+
+Two things to know. Takeout stamps every entry with the account's current
+zone abbreviation as a fixed offset, MDT on a February date included, so
+the adapter converts by that offset and renders in `RECALL_TZ`. And the
+YouTube export's own `watch-history` and `search-history` files hold the
+same entries as `My Activity/YouTube`, so drop in one or the other. Search
+history is the most sensitive file in a Takeout; dropping it in is the
+choice, and deleting a product folder from the data directory removes it.
 
 Drop any `*.vcf` under the data directory as well. It is not a source and
 produces no chunks; every adapter uses it to show contact names instead of

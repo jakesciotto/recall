@@ -18,6 +18,7 @@ import sys
 import zipfile
 from xml.etree import ElementTree
 
+from .activity import FILES as ACTIVITY_FILES
 from .base import Chunk, Source, walk
 
 # Resolved once. PDFs go through poppler's pdftotext, and read_text swallows
@@ -104,7 +105,7 @@ class Ignore:
 def keep(path, ignore=None):
     """`path` is relative to the documents root."""
     name = path.name
-    if name.startswith("._") or name == ".DS_Store":
+    if name.startswith("._") or name == ".DS_Store" or name in ACTIVITY_FILES:
         return False
     if set(path.parts[:-1]) & SKIP_SEGMENTS:
         return False

@@ -232,6 +232,12 @@ class TestSkips(unittest.TestCase):
     def test_ds_store_is_skipped(self):
         self.assertFalse(files.keep(pathlib.Path("a/.DS_Store")))
 
+    def test_a_file_another_adapter_owns_is_left_to_it(self):
+        """A Takeout dropped under documents/ would index its 146 MB
+        activity file as HTML text and again through the activity adapter."""
+        self.assertFalse(files.keep(pathlib.Path("Takeout/My Activity/Search/MyActivity.html")))
+        self.assertFalse(files.keep(pathlib.Path("YouTube and YouTube Music/history/watch-history.html")))
+
     def test_a_dotfile_with_a_real_name_is_kept(self):
         self.assertTrue(files.keep(pathlib.Path("a/.plan.md")))
 

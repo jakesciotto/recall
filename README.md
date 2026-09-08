@@ -52,6 +52,7 @@ each adapter recognises its own files.
 | a Spotify export folder | Listening history | Spotify privacy page |
 | `export.zip` | Apple Health workouts | Health app, profile, Export |
 | `documents/` | PDFs, Office files, legacy `.doc`, RTF, HTML, text | anywhere |
+| a `My Activity/` folder | Searches, visits, watches, per product | Google Takeout, My Activity |
 | any `*.vcf` | Contact names | Contacts app, Export vCard |
 
 `recall doctor` lists what it found. Adding a source means writing one small

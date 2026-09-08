@@ -1,5 +1,6 @@
 """Adapter registry and auto-detection."""
 
+from .activity import Activity
 from .base import Chunk, Source          # noqa: F401
 from .files import Files
 from .health import Health
@@ -10,7 +11,7 @@ from .spotify import Spotify
 from .twitter import Twitter
 
 ADAPTERS = [IMessage(), Mbox(), Twitter(), Spotify(), Health(), ICal(),
-            Files()]
+            Activity(), Files()]
 
 
 def detect_all(root):
