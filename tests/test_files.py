@@ -40,6 +40,30 @@ def docx_bytes(text, created=None):
     return buf.read()
 
 
+S = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+
+
+def xlsx_bytes():
+    """One sheet named Budget: a header of shared strings, then a row with a
+    shared string, a number, and an inline string."""
+    buf = tempfile.SpooledTemporaryFile()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("xl/workbook.xml",
+                   f'<workbook xmlns="{S}"><sheets><sheet name="Budget" '
+                   'sheetId="1"/></sheets></workbook>')
+        z.writestr("xl/sharedStrings.xml",
+                   f'<sst xmlns="{S}"><si><t>Item</t></si><si><t>Cost</t></si>'
+                   '<si><t>Sauna</t></si></sst>')
+        z.writestr("xl/worksheets/sheet1.xml",
+                   f'<worksheet xmlns="{S}"><sheetData>'
+                   '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>'
+                   '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>42.5</v></c>'
+                   '<c r="C2" t="inlineStr"><is><t>deposit paid</t></is></c></row>'
+                   '</sheetData></worksheet>')
+    buf.seek(0)
+    return buf.read()
+
+
 PDF = (b"%PDF-1.4\n"
        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
@@ -175,6 +199,27 @@ class TestSizeCap(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d)
         p = write(d, "big.csv", "row,row,row\n" * (files.MAX_CHARS // 10))
         self.assertLessEqual(len(files.read_text(p)), files.MAX_CHARS)
+
+
+class TestSpreadsheets(unittest.TestCase):
+    """A grid read as shared strings only keeps the labels and loses every
+    number. Rows come out tab-joined under the sheet name, so a question
+    about a figure can find the row that holds it."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.text = files.read_text(write(self.dir, "b.xlsx", xlsx_bytes()))
+
+    def test_numbers_survive(self):
+        self.assertIn("42.5", self.text)
+
+    def test_a_row_is_one_tab_joined_line(self):
+        self.assertIn("Sauna\t42.5\tdeposit paid", self.text)
+
+    def test_the_sheet_name_leads(self):
+        self.assertIn("[sheet: Budget]", self.text)
+        self.assertLess(self.text.index("Budget"), self.text.index("Item"))
 
 
 class TestSkips(unittest.TestCase):
@@ -406,4 +451,18 @@ class TestSamples(unittest.TestCase):
         write(d, "archive/prices.csv", table)
         samples = files.Files().samples(pathlib.Path(d))
         self.assertTrue(any("170.16,172.30" in s for s in samples),
+                        [len(s) for s in samples])
+
+    def test_a_numeric_spreadsheet_is_sampled_too(self):
+        """The density proxy reads text files by their first block. A
+        spreadsheet is a zip, so it is extracted first and judged on its
+        rows, or a grid of figures never reaches the tokenizer."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        prose = ("The quick brown fox jumps over the lazy dog again. " * 400)
+        for i in range(12):
+            write(d, f"essays/long-{i}.txt", prose + str(i))
+        write(d, "finance/grid.xlsx", xlsx_bytes())
+        samples = files.Files().samples(pathlib.Path(d))
+        self.assertTrue(any("[sheet: Budget]" in s for s in samples),
                         [len(s) for s in samples])

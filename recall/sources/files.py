@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from xml.etree import ElementTree
 
 from .base import Chunk, Source, walk
 
@@ -225,6 +226,55 @@ def _office(path):
     return re.sub(r"<[^>]+>", " ", xml)
 
 
+_SS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+
+
+def _xlsx(path):
+    """Sheet name, then rows as tab-joined cells. Shared strings alone keep
+    the labels and lose every number."""
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        shared = []
+        if "xl/sharedStrings.xml" in names:
+            root = ElementTree.fromstring(z.read("xl/sharedStrings.xml"))
+            shared = ["".join(t.text or "" for t in si.iter(_SS + "t"))
+                      for si in root.iter(_SS + "si")]
+        titles = []
+        if "xl/workbook.xml" in names:
+            root = ElementTree.fromstring(z.read("xl/workbook.xml"))
+            titles = [sh.get("name", "") for sh in root.iter(_SS + "sheet")]
+        out = []
+        sheets = sorted(n for n in names
+                        if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n))
+        for i, sheet in enumerate(sheets):
+            rows = _sheet_rows(ElementTree.fromstring(z.read(sheet)), shared)
+            if rows:
+                title = titles[i] if i < len(titles) else f"sheet{i + 1}"
+                out.append(f"[sheet: {title}]\n" + "\n".join(rows))
+    return "\n\n".join(out)
+
+
+def _sheet_rows(root, shared):
+    rows = []
+    for row in root.iter(_SS + "row"):
+        cells = []
+        for c in row.iter(_SS + "c"):
+            v = c.find(_SS + "v")
+            if v is None or v.text is None:
+                inline = c.find(_SS + "is")
+                cells.append("".join(t.text or "" for t in inline.iter(_SS + "t"))
+                             if inline is not None else "")
+            elif c.get("t") == "s":
+                i = int(v.text)
+                cells.append(shared[i] if i < len(shared) else "")
+            else:
+                cells.append(v.text)
+        line = "\t".join(cells).rstrip()
+        if line.strip():
+            rows.append(line)
+    return rows
+
+
 def _ole(path):
     if not ANTIWORD:
         return ""
@@ -261,7 +311,9 @@ def _read(path):
         return ""
     if kind == "pdf":
         return _pdf(path)
-    if kind in ("docx", "pptx", "xlsx"):
+    if kind == "xlsx":
+        return _xlsx(path)
+    if kind in ("docx", "pptx"):
         return _office(path)
     if kind == "ole":
         return _ole(path)
@@ -442,21 +494,27 @@ class Files(Source):
         alone missed an 18 KB price table on one archive: it ran at one
         token per character against 1.5 for the longest texts, so its
         chunks sat under the character budget and over the token ceiling.
-        The share of letters in the first block is the proxy for density,
-        read on text files only; a numeric table inside a PDF is covered by
-        the safety margin alone.
+        The share of letters is the proxy for density: the first block of
+        a text file, the extracted rows of a spreadsheet. A numeric table
+        inside a PDF is covered by the safety margin alone.
         """
         paths = list(self._paths(path, Ignore.load(path)))
         largest = sorted(paths, key=lambda pr: -pr[0].stat().st_size)[:100]
         long_texts = [t for t in (read_text(p)[:20000] for p, _ in largest) if t]
         heads = []
         for p, rel in paths:
-            if rel.suffix.lower() not in TEXT_EXT:
-                continue
-            with open(p, "rb") as f:
-                raw = f.read(PROBE)
-            if raw and not is_binary(raw):
-                heads.append((_letter_share(decode_bytes(raw)), p))
+            ext = rel.suffix.lower()
+            if ext == ".xlsx":
+                # A grid of figures is as dense as a price table, and it
+                # is a zip, so it is judged on its extracted rows.
+                text = read_text(p)[:20000]
+                if text:
+                    heads.append((_letter_share(text), p))
+            elif ext in TEXT_EXT:
+                with open(p, "rb") as f:
+                    raw = f.read(PROBE)
+                if raw and not is_binary(raw):
+                    heads.append((_letter_share(decode_bytes(raw)), p))
         heads.sort(key=lambda h: h[0])
         dense_texts = [t for t in (read_text(p)[:20000] for _, p in heads[:30]) if t]
         return (sorted(long_texts, key=len, reverse=True)[:8]

@@ -44,7 +44,8 @@ messiest part of an archive, so four rules live in it.
 **The header is read before the extension is trusted.** A Photoshop file
 named `.pdf`, a PDF named `.txt`, and a Word file named `.doc` that is really
 RTF all read correctly, because the first bytes decide. Anything that is not
-text or a known document yields nothing rather than noise. UTF-16 files with
+text or a known document yields nothing rather than noise. A spreadsheet
+reads as its sheet names and tab-joined rows, numbers included. UTF-16 files with
 a byte order mark are decoded, not rejected as binary. Legacy `.doc` needs
 `antiword` on the path; without it those files are skipped and `doctor`
 says so.
