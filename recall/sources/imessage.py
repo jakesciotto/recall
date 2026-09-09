@@ -4,6 +4,7 @@ On modern macOS `message.text` is NULL for almost every row; the body lives
 in `attributedBody`. Group chat names matter too. See docs/lessons.md.
 """
 
+import bisect
 import datetime as dt
 import sqlite3
 import struct
@@ -13,6 +14,9 @@ from .base import Chunk, Source, walk
 APPLE_EPOCH = 978307200
 SESSION_GAP_S = 1800     # live chat: 30 minutes separates two conversations
 MAX_TURNS = 20
+ATTACHMENT_PREFIX = "~/Library/Messages/Attachments/"
+CONTEXT_SPAN_S = 1800
+CONTEXT_TURNS = 3
 
 _SQL = """
 SELECT m.ROWID, c.guid, COALESCE(h.id, ''), m.date, m.is_from_me,
@@ -22,6 +26,40 @@ LEFT JOIN handle h ON h.ROWID = m.handle_id
 LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
 LEFT JOIN chat c ON c.ROWID = cmj.chat_id
 """
+
+
+_ATTACHMENTS_SQL = """
+SELECT a.filename, m.ROWID, c.guid, COALESCE(h.id, ''), m.date, m.is_from_me
+FROM attachment a
+JOIN message_attachment_join j ON j.attachment_id = a.ROWID
+JOIN message m ON m.ROWID = j.message_id
+LEFT JOIN handle h ON h.ROWID = m.handle_id
+LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+WHERE a.filename IS NOT NULL
+"""
+
+
+def local_path(filename, root):
+    """The on-disk file for an attachment row. chat.db records the Mac's
+    path; the export keeps the same tree in Attachments/ beside chat.db."""
+    if not filename or not filename.startswith(ATTACHMENT_PREFIX):
+        return None
+    return root / filename[len(ATTACHMENT_PREFIX):]
+
+
+def context_window(rows, ats, at, contacts, span_s=CONTEXT_SPAN_S,
+                   turns=CONTEXT_TURNS):
+    """Up to `turns` texted lines either side of `at`, within `span_s`, in
+    one thread. `ats` is the sorted time of each row, for bisect."""
+    from ..naming import label
+    i = bisect.bisect_left(ats, at)
+    before = [r for r in rows[max(0, i - turns):i] if at - r["at"] <= span_s]
+    after = [r for r in rows[i:i + turns] if r["at"] - at <= span_s]
+    return "\n".join(
+        f"{'me' if r['mine'] else label(r['handle'] or 'them', contacts)}: "
+        f"{r['text']}"
+        for r in before + after)
 
 
 def decode_attributed_body(blob):
@@ -86,6 +124,28 @@ class IMessage(Source):
             return out, names
         finally:
             con.close()
+
+    def _attachments(self, path):
+        """[(file, message)] for every attachment row whose file exists.
+        The message is carried even when it has no text: most photos are
+        sent with none, and the link is what dates the image."""
+        root = path.parent / "Attachments"
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            rows = con.execute(_ATTACHMENTS_SQL).fetchall()
+        finally:
+            con.close()
+        out = []
+        for filename, rid, guid, handle, date, mine in rows:
+            p = local_path(filename, root)
+            if p is not None and p.is_file():
+                out.append((p, {"rowid": rid, "thread": guid or "",
+                                "handle": handle, "at": _unix(date),
+                                "mine": bool(mine)}))
+        return out
+
+    def media(self, path):
+        return sorted({p for p, _ in self._attachments(path)})
 
     def samples(self, path):
         rows, _ = self._rows(path)
