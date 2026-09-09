@@ -7,6 +7,7 @@
 """
 
 import argparse
+import collections
 import datetime as dt
 import json
 import pathlib
@@ -143,7 +144,9 @@ def cmd_doctor(args):
         from .sources import detect_all
         found = detect_all(data)
         if found:
-            _ok("sources found", ", ".join(a.name for a, _ in found))
+            tally = collections.Counter(a.name for a, _ in found)
+            _ok("sources found", ", ".join(
+                f"{n} ({c} folders)" if c > 1 else n for n, c in tally.items()))
         else:
             print(f"  warn  no recognised sources under {data}")
             print("          drop an export in and re-run; see docs/sources.md")

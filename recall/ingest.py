@@ -96,13 +96,16 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
 
     summary = {}
     for adapter, path in found:
+        # One adapter can own many folders (a Takeout export has one per
+        # product), so the counts add up per name instead of replacing.
+        counts = summary.setdefault(adapter.name,
+                                    {"new": 0, "updated": 0, "dropped": 0})
         budget = chunking.calibrate(adapter.samples(path))
         log(f"[{adapter.name}] budget {budget:,} chars per chunk")
 
         work = changed(adapter.chunks(path, budget, contacts), stored)
         log(f"[{adapter.name}] {work.new:,} new, {work.updated:,} rewritten")
         if not work.pending:
-            summary[adapter.name] = {"new": 0, "updated": 0, "dropped": 0}
             continue
 
         # The text is cleaned HERE, before it is embedded and before the
@@ -140,8 +143,9 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
                 log(f"  {loaded:,} / {len(work.pending):,}")
 
         log(f"[{adapter.name}] loaded {loaded:,}, dropped {len(dropped):,}")
-        summary[adapter.name] = {"new": fresh, "updated": loaded - fresh,
-                                 "dropped": len(dropped)}
+        counts["new"] += fresh
+        counts["updated"] += loaded - fresh
+        counts["dropped"] += len(dropped)
 
     if reindex and any(s["new"] or s["updated"] for s in summary.values()):
         log("building the vector index (last, so the load did not pay for it)")

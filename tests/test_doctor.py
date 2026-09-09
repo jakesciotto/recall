@@ -122,3 +122,38 @@ class TestDoctorNotesOptionalBinaries(unittest.TestCase):
             line = next(l for l in text.splitlines() if name in l)
             self.assertNotIn("FAIL", line)
             self.assertIn("note", line)
+
+
+class TestDoctorNamesEachSourceOnce(unittest.TestCase):
+    """Twenty-five product folders under one adapter printed the adapter
+    name twenty-five times, which reads as twenty-five sources."""
+
+    def sources_line(self, found):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as data:
+            args = types.SimpleNamespace(data=data)
+            with mock.patch.object(db, "connect",
+                                   side_effect=OSError("no database")), \
+                 mock.patch.object(chunking, "measure_density",
+                                   return_value=3.0), \
+                 mock.patch.object(embed, "embed",
+                                   lambda texts, timeout=60: [[0.0] * 1024]), \
+                 mock.patch("recall.sources.detect_all",
+                            return_value=found), \
+                 contextlib.redirect_stdout(out):
+                cli.cmd_doctor(args)
+        lines = [l for l in out.getvalue().splitlines() if "sources found" in l]
+        self.assertTrue(lines, "doctor must list the sources it found")
+        return lines[0]
+
+    def test_a_multi_folder_source_is_one_name_with_a_count(self):
+        activity = types.SimpleNamespace(name="activity")
+        mail = types.SimpleNamespace(name="mbox")
+        found = [(mail, "mail.mbox")] + [(activity, f"p{i}") for i in range(3)]
+
+        line = self.sources_line(found)
+
+        self.assertEqual(line.count("activity"), 1)
+        self.assertIn("activity (3 folders)", line)
+        self.assertIn("mbox", line)
+        self.assertNotIn("mbox (", line)

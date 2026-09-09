@@ -57,6 +57,14 @@ never on scrape success alone.
 source.** Twice in one day an "absent" export turned out to be a copy still
 in flight. Verify by content coverage, not by filename.
 
+**A summary keyed by a name that is not unique reports the last item and
+calls it the total.** One adapter can own many folders, and the run summary
+was a dict keyed by adapter name, so twenty-five product folders loaded
+3,263 chunks and the JSON said 201. The log lines and the index were right;
+only the report was wrong, which is the worst place to be wrong, because
+the report is what gets read. Accumulate per key. Same shape in `doctor`,
+which listed the name twenty-five times as if they were twenty-five sources.
+
 ## Sizing
 
 **A character budget is a guess about tokens, and the guess is wrong.** The

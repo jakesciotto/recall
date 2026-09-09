@@ -252,3 +252,62 @@ class TestNulSurvivesTheWholeRun(unittest.TestCase):
             summary = self.ingest(store, pathlib.Path(tmp))
             self.assertEqual(summary["nulsource"], {"new": 0, "updated": 0,
                                                     "dropped": 0})
+
+
+class Folders(base.Source):
+    """One adapter, several folders: the shape of a Takeout export with one
+    directory per product. Every instance shares the name."""
+
+    name = "folders"
+
+    def detect(self, root):
+        return sorted(p for p in root.iterdir() if p.is_dir())
+
+    def samples(self, path):
+        return ["x" * 100]
+
+    def chunks(self, path, budget, contacts=None):
+        yield base.Chunk(ref=f"folders:{path.name}", text=f"from {path.name}",
+                         source=self.name, occurred_at="2020-01-01T00:00:00Z",
+                         date_confidence="exact")
+
+
+class TestSummaryOverManyFolders(unittest.TestCase):
+    """A summary keyed by adapter name held only the last folder's counts.
+    Twenty-five product folders loaded 3,263 chunks and the JSON said 201."""
+
+    def ingest(self, store, root):
+        adapter = Folders()
+        with mock.patch.object(ingest, "db", store), \
+             mock.patch.object(ingest.chunking, "calibrate",
+                               return_value=8000), \
+             mock.patch.object(ingest.embedding, "embed_safe",
+                               lambda g, d, w: (g, [[0.0]] * len(g))), \
+             mock.patch.object(ingest, "detect_all",
+                               lambda r: [(adapter, p)
+                                          for p in adapter.detect(r)]):
+            return ingest.run(root, Conn(), log=lambda *a: None)
+
+    def test_counts_add_up_across_folders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for name in ("a", "b", "c"):
+                (root / name).mkdir()
+
+            summary = self.ingest(Store(), root)
+
+            self.assertEqual(summary["folders"],
+                             {"new": 3, "updated": 0, "dropped": 0})
+
+    def test_an_unchanged_later_folder_does_not_zero_the_earlier_one(self):
+        """The no-work branch wrote zeros over whatever came before it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "b").mkdir()
+            store = Store()
+            self.ingest(store, root)
+            (root / "a").mkdir()
+
+            summary = self.ingest(store, root)
+
+            self.assertEqual(summary["folders"]["new"], 1)
