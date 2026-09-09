@@ -207,3 +207,26 @@ class TestAttachmentChunks(unittest.TestCase):
             captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a dog")
             captions.HashCache(work).get(root / "Attachments/cd/G9/copy.jpg")
             self.assertEqual(len(attachment_chunks(root, work)), 1)
+
+
+class TestChunksRespectTheBudget(unittest.TestCase):
+    """A replay over the real archive yielded a 12,903-char chunk against an
+    8,000 budget: the OCR line was cut to fit, the context lines were not,
+    and one long pasted message carried the whole chunk over. Swept, because
+    a bound that holds at one budget can fail at another."""
+
+    def test_long_context_is_cut_and_the_chunk_still_fits(self):
+        msgs = [(1, "c1", "+15550001111", T - 60, False, "y" * 20000),
+                (2, "c1", "+15550001111", T, False, None),
+                (3, "c1", "", T + 30, True, "z" * 5000)]
+        for budget in (300, 1000, 8000):
+            with self.subTest(budget=budget), \
+                 tempfile.TemporaryDirectory() as tmp:
+                root = export(tmp, msgs, ATT, FILES)
+                work = root / "work"
+                captioned(work, root / "Attachments/ab/G1/p.jpg",
+                          caption="a sign", ocr_text="w" * 3000, ocr_chars=3000)
+                [c] = attachment_chunks(root, work, budget=budget)
+                self.assertLessEqual(len(c.text), budget)
+                self.assertIn("\nSaid around it: ", c.text)
+                self.assertIn("\nText in image: ", c.text)
