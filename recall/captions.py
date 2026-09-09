@@ -53,8 +53,9 @@ def sha256_of(path):
 
 
 class HashCache:
-    """sha256 per file, keyed by path, size and mtime, so a re-run never
-    re-reads an unchanged tree. Append-only JSONL; the last line wins."""
+    """What each file is, and its sha256 once an image was hashed, keyed by
+    path, size and mtime. A re-run never re-reads an unchanged file, and an
+    ingest never reads one at all. Append-only JSONL; the last line wins."""
 
     def __init__(self, work):
         self.path = pathlib.Path(work) / "hashes.jsonl"
@@ -64,30 +65,58 @@ class HashCache:
             with open(self.path, encoding="utf-8") as f:
                 for line in f:
                     r = json.loads(line)
-                    self._map[r["path"]] = (r["size"], r["mtime"], r["sha256"])
+                    self._map[r["path"]] = (r["size"], r["mtime"],
+                                            r.get("kind"), r.get("sha256"))
         except OSError:
             pass
 
-    def known(self, path):
+    def _entry(self, path):
         st = os.stat(path)
         hit = self._map.get(str(path))
         if hit and hit[0] == st.st_size and hit[1] == int(st.st_mtime):
-            return hit[2]
-        return None
+            return st, hit
+        return st, None
 
-    def get(self, path):
-        sha = self.known(path)
-        if sha:
-            return sha
-        st = os.stat(path)
-        sha = sha256_of(path)
+    def _remember(self, path, st, kind, sha):
         row = {"path": str(path), "size": st.st_size,
-               "mtime": int(st.st_mtime), "sha256": sha}
+               "mtime": int(st.st_mtime), "kind": kind, "sha256": sha}
         with self._lock:
-            self._map[str(path)] = (row["size"], row["mtime"], sha)
+            self._map[str(path)] = (row["size"], row["mtime"], kind, sha)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(row) + "\n")
+
+    def seen(self, path):
+        """(kind, sha) from the cache alone, or None for a file no caption
+        run has examined. A row hashed before kinds were stored has a sha
+        and no kind; only images were ever hashed, so it reads as one."""
+        _, hit = self._entry(path)
+        if hit is None:
+            return None
+        kind, sha = hit[2], hit[3]
+        return (kind or ("image" if sha else None), sha)
+
+    def known(self, path):
+        _, hit = self._entry(path)
+        return hit[3] if hit else None
+
+    def kind(self, path):
+        st, hit = self._entry(path)
+        if hit and hit[2]:
+            return hit[2]
+        # A non-image is stored as "other", never None: None would read as
+        # "never examined" and the file would be opened on every run.
+        kind = imagery.kind(path) or "other"
+        self._remember(path, st, kind, hit[3] if hit else None)
+        return kind
+
+    def get(self, path):
+        st, hit = self._entry(path)
+        if hit and hit[3]:
+            return hit[3]
+        kind = hit[2] if hit else (imagery.kind(path) or "other")
+        sha = sha256_of(path)
+        self._remember(path, st, kind, sha)
         return sha
 
 
@@ -105,7 +134,7 @@ def process(path, work, captioner=None, decoder=None, ocr=None, hashes=None):
     ocr = ocr or imagery.ocr
     hashes = hashes or HashCache(work)
     try:
-        kind = imagery.kind(path)
+        kind = hashes.kind(path)
         if kind not in IMAGE_KINDS:
             return "skipped"
         sha = hashes.get(path)
@@ -139,16 +168,22 @@ def process(path, work, captioner=None, decoder=None, ocr=None, hashes=None):
 
 
 def uncaptioned(paths, work):
-    """(images without a record, images). Never hashes: an ingest must stay
-    cheap, and only `recall caption` reads image bytes."""
+    """(images without a record, images), from the cache alone. An ingest
+    reads no attachment bytes; a file no caption run has examined counts
+    as pending."""
     hashes = HashCache(work)
     missing = images = 0
     for p in paths:
         try:
-            if imagery.kind(p) not in IMAGE_KINDS:
-                continue
-            sha = hashes.known(p)
+            seen = hashes.seen(p)
         except OSError:
+            continue
+        if seen is None:
+            missing += 1
+            images += 1
+            continue
+        kind, sha = seen
+        if kind != "image" and kind not in IMAGE_KINDS:
             continue
         images += 1
         if sha is None or read_record(work, sha) is None:

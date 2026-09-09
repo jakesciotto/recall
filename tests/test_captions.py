@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import pathlib
 import tempfile
@@ -200,17 +201,63 @@ class TestRun(unittest.TestCase):
 
 @unittest.skipUnless(imagery.available(), "needs the captions extra (Pillow)")
 class TestUncaptioned(unittest.TestCase):
-    def test_it_counts_images_without_a_record_and_never_hashes(self):
+    """An ingest reads no attachment bytes at all. A caption run records what
+    each file is; the count comes from that record alone."""
+
+    def examined(self, tmp):
+        a = image_file(tmp, "a.png")
+        b = image_file(tmp, "b.png", 401, 300)
+        note = pathlib.Path(tmp) / "c.jpg"
+        note.write_bytes(b"text")
+
+        def down(jpeg):
+            raise vision.CaptionError("502")
+        captions.process(a, tmp, captioner=lambda j: "x", ocr=lambda j: "")
+        captions.process(b, tmp, captioner=down, ocr=lambda j: "")
+        captions.process(note, tmp, captioner=lambda j: "x", ocr=lambda j: "")
+        return a, b, note
+
+    def test_it_counts_images_without_a_record_and_reads_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            a = image_file(tmp, "a.png")
-            b = image_file(tmp, "b.png", 401, 300)
+            a, b, note = self.examined(tmp)
+            with mock.patch.object(captions, "sha256_of",
+                                   side_effect=AssertionError("hashed")), \
+                 mock.patch.object(imagery, "kind",
+                                   side_effect=AssertionError("read")):
+                self.assertEqual(captions.uncaptioned([a, b, note], tmp), (1, 2))
+
+    def test_a_file_no_caption_run_has_seen_counts_as_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fresh = image_file(tmp, "d.png")
+            with mock.patch.object(imagery, "kind",
+                                   side_effect=AssertionError("read")):
+                self.assertEqual(captions.uncaptioned([fresh], tmp), (1, 1))
+
+
+class TestKindIsRemembered(unittest.TestCase):
+    def test_a_non_image_is_never_read_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
             note = pathlib.Path(tmp) / "c.jpg"
             note.write_bytes(b"text")
-            captions.write_record(tmp, {"sha256": captions.HashCache(tmp).get(a),
-                                        "caption": "x"})
-            with mock.patch.object(captions, "sha256_of",
-                                   side_effect=AssertionError("hashed")):
-                self.assertEqual(captions.uncaptioned([a, b, note], tmp), (1, 2))
+            self.assertEqual(captions.process(note, tmp), "skipped")
+            with mock.patch.object(imagery, "kind",
+                                   side_effect=AssertionError("read")):
+                self.assertEqual(captions.process(note, tmp), "skipped")
+
+    def test_a_row_without_a_kind_still_reads_as_an_image(self):
+        """Rows written before the kind was stored carry a hash and no kind.
+        Only images were ever hashed, so the hash alone says image."""
+        with tempfile.TemporaryDirectory() as tmp:
+            a = image_file(tmp, "a.png")
+            sha = captions.sha256_of(a)
+            st = os.stat(a)
+            (pathlib.Path(tmp) / "hashes.jsonl").write_text(json.dumps({
+                "path": str(a), "size": st.st_size,
+                "mtime": int(st.st_mtime), "sha256": sha}) + "\n")
+            with mock.patch.object(imagery, "kind",
+                                   side_effect=AssertionError("read")):
+                self.assertEqual(captions.uncaptioned([a], tmp), (1, 1))
+                self.assertEqual(captions.HashCache(tmp).known(a), sha)
 
 
 class TestSourceMedia(unittest.TestCase):
