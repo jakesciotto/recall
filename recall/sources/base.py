@@ -63,6 +63,10 @@ class Source:
         """Paths under `root` this adapter can ingest. Empty means absent."""
         raise NotImplementedError
 
+    def media(self, path):
+        """Files for `recall caption` to describe. Most sources have none."""
+        return []
+
     def chunks(self, path, budget, contacts=None):
         """Yield Chunk objects.
 

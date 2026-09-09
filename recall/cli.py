@@ -177,6 +177,15 @@ def cmd_ingest(args):
     return 0
 
 
+def cmd_caption(args):
+    from . import captions
+    root = pathlib.Path(args.data or config.DATA_DIR)
+    counts = captions.run(root, config.WORK_DIR, jobs=args.jobs,
+                          limit=args.limit)
+    print(json.dumps(counts, indent=2))
+    return 1 if counts.get("failed") else 0
+
+
 def _embedder():
     from . import embed
     return lambda text: embed.embed([text])[0]
@@ -280,6 +289,14 @@ def main(argv=None):
     i.add_argument("--no-index", action="store_true",
                    help="skip the vector index; use when more loads follow")
     i.set_defaults(fn=cmd_ingest)
+
+    c = sub.add_parser("caption", help="describe image attachments through "
+                       "the vision endpoint")
+    c.add_argument("--data")
+    c.add_argument("-j", "--jobs", type=int, default=3)
+    c.add_argument("--limit", type=int,
+                   help="stop after this many new captions")
+    c.set_defaults(fn=cmd_caption)
 
     a = sub.add_parser("ask", help="answer a question from the archive")
     a.add_argument("question", nargs="+")
