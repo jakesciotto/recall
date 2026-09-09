@@ -62,6 +62,10 @@ USER_LABEL = _env("RECALL_USER_LABEL", "")
 # The model that grades logged answers. A model grading its own output
 # shows self-preference bias, so name a different one. See docs/evaluating.md.
 JUDGE_MODEL = _env("RECALL_JUDGE_MODEL", "")
+# Optional: captions image attachments. Any OpenAI-compatible chat endpoint
+# that accepts image content works. See docs/sources.md.
+VISION_URL = _env("RECALL_VISION_URL", "")
+VISION_MODEL = _env("RECALL_VISION_MODEL", "")
 
 TOKENIZE_URL = _env("RECALL_TOKENIZE_URL", "")
 
