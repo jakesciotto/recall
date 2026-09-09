@@ -97,6 +97,41 @@ produces no chunks; every adapter uses it to show contact names instead of
 phone numbers and email addresses. On one corpus this named 52 percent of all
 chunks.
 
+## Image attachments
+
+Images are indexed as text: a caption from a vision model, the text OCR
+finds inside the image, and the words said around the message that
+carried it. Two steps, deliberately separate.
+
+1. `recall caption` describes every image the adapters declare. It keeps
+   one record per image in `RECALL_WORK/captions/`, keyed by the file's
+   sha256, and writes a record on success or when it gates a tiny image,
+   never on a failure. So a vision server that restarts mid-run costs the
+   images in flight and nothing else; the next run retries them. It is
+   resumable and safe to interrupt. `-j` sets the workers, `--limit` bounds
+   new work for a smoke test.
+2. `recall ingest` reads the cache and yields one chunk per captioned
+   image. It never reads image bytes and never calls the vision endpoint,
+   so an ingest stays cheap. It reports how many images still wait.
+
+Configure `RECALL_VISION_URL` and `RECALL_VISION_MODEL`: any
+OpenAI-compatible chat endpoint that accepts image content. Install
+`pip install 'recall[captions]'` for Pillow. `magick` (ImageMagick) reads
+what Pillow cannot, HEIC in particular, and needs a HEVC decoder plugin;
+`tesseract` supplies the text inside images. Both are optional and
+`recall doctor` says which are present.
+
+The prompt is fixed. Captions written under different prompts do not
+compare inside one index, so a prompt change means delete the cache and
+recaption.
+
+Apple Messages: copy `~/Library/Messages/Attachments` beside `chat.db` in
+the data directory (a symlink works). The adapter reads the attachment
+table, links each file to its message, and dates the image by that
+message. Images are recognised by their first bytes: a large share carry
+a `.pluginPayloadAttachment` extension and are ordinary photos. Videos
+are not captioned.
+
 ## Writing one
 
 ```python
@@ -130,6 +165,11 @@ class Journal(Source):
 
 Add it to `ADAPTERS` in `recall/sources/__init__.py`. Nothing else changes.
 
+An adapter with images implements `media(path)`, yielding the files for
+`recall caption` to describe. Read the records back in `chunks` through
+`recall.captions.read_record` and the hash cache's `known`, never by
+hashing: only `recall caption` reads image bytes.
+
 ## Three rules
 
 1. **`ref` must be stable and unique.** The loader skips a ref it already
@@ -142,6 +182,10 @@ Add it to `ADAPTERS` in `recall/sources/__init__.py`. Nothing else changes.
 3. **Be honest about dates.** `date_confidence` travels with `occurred_at`
    so a guessed date never looks like a real one. Use `exact` only when the
    source actually stated it.
+
+One walker rule: a directory named `Attachments` beside a `chat.db` is
+skipped. It holds vCards, calendar invites and archives sent in chats,
+and every adapter that walks by file name would otherwise claim them.
 
 ## Rolling up high-frequency events
 

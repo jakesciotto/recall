@@ -379,6 +379,16 @@ every insert pay maintenance. Building it afterwards took two minutes.
 quotes, so any delimiter-based parse of a text table corrupts exactly the
 rows containing the delimiter, and does it silently.
 
+**A checkpoint written on failure is the expensive bug.** The vision
+server restarts, a batch of captions fails, and every one of those images
+is then permanently skipped because the checkpoint claims it is done.
+Write the record on success or on a deliberate gate, never on an error,
+and a restart costs only the images in flight.
+
+**An attachment's extension says nothing.** Ten thousand files carried a
+`.pluginPayloadAttachment` extension and 58 percent of them were real
+photos. Sniff the first bytes.
+
 ## Memory, on a shared-memory machine
 
 **Model weights do not appear in process RSS.** On a unified-memory APU they

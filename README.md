@@ -26,6 +26,7 @@ pip install -e .
 # drop your exports into data/ (see the table below), then:
 recall doctor                 # says exactly what is missing, if anything
 recall ingest                 # finds what you dropped in and indexes it
+recall caption                # optional: describes image attachments through a vision model
 recall ask "when did I last see the dentist"
 ```
 
@@ -47,6 +48,7 @@ each adapter recognises its own files.
 | Put this in `data/` | Recognised by | Where to get it |
 |---|---|---|
 | `chat.db` | Apple Messages | `~/Library/Messages/chat.db` on a Mac |
+| `Attachments/` beside `chat.db` | Messages images, captioned by `recall caption` | `~/Library/Messages/Attachments` on a Mac |
 | any `*.mbox` | Email | Google Takeout, Thunderbird, offlineimap |
 | a Twitter/X archive | Tweets and DMs | X, Settings, Download an archive |
 | a Spotify export folder | Listening history | Spotify privacy page |
