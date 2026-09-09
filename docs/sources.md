@@ -132,6 +132,14 @@ message. Images are recognised by their first bytes: a large share carry
 a `.pluginPayloadAttachment` extension and are ordinary photos. Videos
 are not captioned.
 
+Twitter/X: the archive ships its media beside the export, in
+`tweets_media` and the two `direct_messages*_media` folders. The adapter
+declares those files, and the file name prefix links each one to the
+tweet or DM that carried it, so a tweet image reads "Posted with" the
+tweet and a DM image reads "Said with" the sender. An orphan with no
+parent keeps its chunk undated. Videos are listed but not captioned; a
+caption you carry over for one still indexes.
+
 ## Writing one
 
 ```python
