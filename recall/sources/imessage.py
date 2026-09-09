@@ -157,6 +157,54 @@ class IMessage(Source):
         rows, names = self._rows(path)
         yield from self._windows(rows, names, contacts, budget)
         yield from trend_chunks(rows, contacts, budget, trends.zone())
+        yield from self._attachment_chunks(path, rows, names, contacts, budget)
+
+    def _attachment_chunks(self, path, rows, names, contacts, budget):
+        """One chunk per captioned image, from the cache `recall caption`
+        fills. Nothing here reads image bytes: a file the cache has not
+        hashed yet is simply not ready."""
+        from .. import captions, config
+        from ..naming import header
+        contacts = contacts or {}
+        by_thread = {}
+        for r in rows:
+            by_thread.setdefault(r["thread"], []).append(r)
+        ats = {t: [r["at"] for r in rs] for t, rs in by_thread.items()}
+        handles = {t: {r["handle"] for r in rs if r["handle"]}
+                   for t, rs in by_thread.items()}
+        hashes = captions.HashCache(config.WORK_DIR)
+        seen = set()
+        for file, msg in self._attachments(path):
+            sha = hashes.known(file)
+            if sha is None or sha in seen:
+                continue
+            seen.add(sha)
+            rec = captions.read_record(config.WORK_DIR, sha)
+            if not rec or rec.get("skipped") or not rec.get("caption"):
+                continue
+            thread = msg["thread"]
+            who = sorted(handles.get(thread, set())
+                         | ({msg["handle"]} if msg["handle"] else set()))
+            when = dt.datetime.fromtimestamp(
+                msg["at"], dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            name = names.get(thread)
+            group = f'"{name}" with ' if name else "with "
+            lines = [f"[{when[:10]}, {group}{header(who, contacts)}]",
+                     f"Image: {rec['caption']}"]
+            around = context_window(by_thread.get(thread, []),
+                                    ats.get(thread, []), msg["at"], contacts)
+            if around:
+                lines.append(f"Said around it: {around}")
+            text = "\n".join(lines)
+            ocr = rec.get("ocr_text") or ""
+            room = budget - len(text) - len("\nText in image: ")
+            if (len(ocr) >= captions.OCR_MIN_CHARS
+                    and room >= captions.OCR_MIN_CHARS):
+                lines.insert(2, f"Text in image: {ocr[:room]}")
+                text = "\n".join(lines)
+            yield Chunk(ref=f"attachment:{sha}", text=text, source=self.name,
+                        occurred_at=when, date_confidence="exact",
+                        participants=who, thread=thread)
 
     def _windows(self, rows, names, contacts, budget):
         from ..chunking import parts, sessions

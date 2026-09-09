@@ -112,3 +112,98 @@ class TestContextWindow(unittest.TestCase):
         text = imessage.context_window(rows, [T + 1, T + 2], T,
                                        {"+1555": "Ada Lovelace"})
         self.assertEqual(text, "Ada Lovelace: hi\nme: yo")
+
+
+def captioned(work, file, **rec):
+    sha = captions.HashCache(work).get(file)
+    captions.write_record(work, {"sha256": sha, "caption": None,
+                                 "ocr_text": None, "ocr_chars": 0,
+                                 "skipped": None, **rec})
+    return sha
+
+
+def attachment_chunks(root, work, budget=8000, contacts=None):
+    with mock.patch.object(config, "WORK_DIR", pathlib.Path(work)):
+        return [c for c in IMessage().chunks(root / "chat.db", budget, contacts)
+                if c.ref.startswith("attachment:")]
+
+
+MSGS = [(1, "c1", "+15550001111", T - 60, False, "look at this"),
+        (2, "c1", "+15550001111", T, False, None),
+        (3, "c1", "", T + 30, True, "cute")]
+ATT = [(PREFIX + "ab/G1/p.jpg", 2)]
+FILES = {"ab/G1/p.jpg": b"\xff\xd8\xff pixels"}
+
+
+class TestAttachmentChunks(unittest.TestCase):
+    def test_a_captioned_image_becomes_one_chunk_dated_by_its_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT, FILES)
+            work = root / "work"
+            sha = captioned(work, root / "Attachments/ab/G1/p.jpg",
+                            caption="a dog on a beach")
+            [c] = attachment_chunks(root, work,
+                                    contacts={"+15550001111": "Ada Lovelace"})
+        self.assertEqual(c.ref, f"attachment:{sha}")
+        self.assertEqual(c.source, "messages")
+        self.assertEqual(c.occurred_at, "2021-05-03T00:00:00Z")
+        self.assertEqual(c.date_confidence, "exact")
+        self.assertEqual(c.participants, ["+15550001111"])
+        self.assertEqual(c.thread, "c1")
+        self.assertEqual(c.text, "[2021-05-03, with Ada Lovelace]\n"
+                                 "Image: a dog on a beach\n"
+                                 "Said around it: Ada Lovelace: look at this\n"
+                                 "me: cute")
+
+    def test_a_group_name_leads_the_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT, FILES, names=[("c1", "Beach Crew")])
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="sand")
+            [c] = attachment_chunks(root, work)
+        self.assertTrue(c.text.startswith(
+            '[2021-05-03, "Beach Crew" with +15550001111]'))
+
+    def test_ocr_text_is_included_and_cut_to_the_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT, FILES)
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a sign",
+                      ocr_text="MENU " * 200, ocr_chars=1000)
+            [c] = attachment_chunks(root, work, budget=200)
+        self.assertIn("\nText in image: MENU", c.text)
+        self.assertLessEqual(len(c.text), 200)
+
+    def test_ocr_that_cannot_fit_twenty_chars_is_left_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT, FILES)
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a sign",
+                      ocr_text="x" * 100, ocr_chars=100)
+            [c] = attachment_chunks(root, work, budget=100)
+        self.assertNotIn("Text in image", c.text)
+        self.assertLessEqual(len(c.text), 100)
+
+    def test_gated_uncaptioned_and_unhashed_images_yield_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            files = dict(FILES, **{"ab/G2/q.jpg": b"\xff\xd8\xff other",
+                                   "ab/G3/r.jpg": b"\xff\xd8\xff third"})
+            att = ATT + [(PREFIX + "ab/G2/q.jpg", 2), (PREFIX + "ab/G3/r.jpg", 2)]
+            root = export(tmp, MSGS, att, files)
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg",
+                      skipped="below pixel gate")
+            captioned(work, root / "Attachments/ab/G2/q.jpg")
+            with mock.patch.object(captions, "sha256_of",
+                                   side_effect=AssertionError("ingest hashed")):
+                self.assertEqual(attachment_chunks(root, work), [])
+
+    def test_the_same_image_sent_twice_is_one_chunk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            att = ATT + [(PREFIX + "cd/G9/copy.jpg", 3)]
+            files = dict(FILES, **{"cd/G9/copy.jpg": FILES["ab/G1/p.jpg"]})
+            root = export(tmp, MSGS, att, files)
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a dog")
+            captions.HashCache(work).get(root / "Attachments/cd/G9/copy.jpg")
+            self.assertEqual(len(attachment_chunks(root, work)), 1)
