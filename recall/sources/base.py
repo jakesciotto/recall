@@ -24,6 +24,11 @@ def walk(root):
             continue
         seen.add(real)
         dirnames.sort()
+        if "chat.db" in filenames and "Attachments" in dirnames:
+            # A Messages export keeps its media beside chat.db. Those files
+            # go through `recall caption`; as sources they would be claimed
+            # by name (vCards, .ics invites, archives sent in chats).
+            dirnames.remove("Attachments")
         for name in sorted(filenames):
             yield pathlib.Path(dirpath) / name
 

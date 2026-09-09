@@ -948,3 +948,28 @@ class TestEmailTrends(unittest.TestCase):
         self.assertNotIn("me@example.org", c.text)
         self.assertIn("you sent 9", c.text)
         self.assertIn("ada@example.org (2, person)", c.text)
+
+
+class TestWalkSkipsMessagesMedia(unittest.TestCase):
+    """A Messages export carries vCards, calendar invites and archives as
+    attachments. Every adapter that walks the tree by file name would claim
+    them as sources."""
+
+    def test_an_ics_under_attachments_beside_chat_db_is_not_walked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "chat.db").write_bytes(b"")
+            (root / "Attachments" / "ab").mkdir(parents=True)
+            (root / "Attachments" / "ab" / "invite.ics").write_text("BEGIN:VCALENDAR")
+            (root / "other").mkdir()
+            (root / "other" / "mine.ics").write_text("BEGIN:VCALENDAR")
+            names = [p.name for p in base.walk(root)]
+        self.assertNotIn("invite.ics", names)
+        self.assertIn("mine.ics", names)
+
+    def test_attachments_without_a_chat_db_are_walked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "Attachments").mkdir()
+            (root / "Attachments" / "a.txt").write_text("x")
+            self.assertEqual([p.name for p in base.walk(root)], ["a.txt"])
