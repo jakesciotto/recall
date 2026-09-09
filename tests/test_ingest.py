@@ -311,3 +311,37 @@ class TestSummaryOverManyFolders(unittest.TestCase):
             summary = self.ingest(store, root)
 
             self.assertEqual(summary["folders"]["new"], 1)
+
+
+class Snapshots(base.Source):
+    name = "snapshots"
+
+    def detect(self, root):
+        return [root]
+
+    def samples(self, path):
+        return ["x" * 100]
+
+    def chunks(self, path, budget, contacts=None):
+        return iter(())
+
+    def media(self, path):
+        return sorted(path.glob("*.png"))
+
+
+class TestIngestReportsUncaptionedMedia(unittest.TestCase):
+    def test_the_log_says_how_many_images_wait_for_recall_caption(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            Image.new("RGB", (300, 300)).save(root / "a.png")
+            lines = []
+            with mock.patch.object(ingest, "db", Store()), \
+                 mock.patch.object(ingest.chunking, "calibrate",
+                                   return_value=8000), \
+                 mock.patch.object(ingest, "detect_all",
+                                   lambda r: [(Snapshots(), r)]), \
+                 mock.patch.object(ingest.config, "WORK_DIR", root / "work"):
+                ingest.run(root, Conn(), log=lines.append)
+        self.assertTrue(any("1 of 1 images have no caption yet; run: "
+                            "recall caption" in l for l in lines), lines)

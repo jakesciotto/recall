@@ -8,7 +8,8 @@ import collections
 import hashlib
 import sys
 
-from . import chunking, contacts as contacts_mod, db, embed as embedding
+from . import (captions, chunking, config, contacts as contacts_mod, db,
+               embed as embedding)
 from .sources import detect_all
 
 Work = collections.namedtuple("Work", "pending new updated")
@@ -100,6 +101,12 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
         # product), so the counts add up per name instead of replacing.
         counts = summary.setdefault(adapter.name,
                                     {"new": 0, "updated": 0, "dropped": 0})
+        media = list(adapter.media(path))
+        if media:
+            missing, images = captions.uncaptioned(media, config.WORK_DIR)
+            if missing:
+                log(f"[{adapter.name}] {missing:,} of {images:,} images have "
+                    f"no caption yet; run: recall caption")
         budget = chunking.calibrate(adapter.samples(path))
         log(f"[{adapter.name}] budget {budget:,} chars per chunk")
 

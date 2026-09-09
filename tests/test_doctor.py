@@ -1,12 +1,13 @@
 import contextlib
 import io
+import pathlib
 import re
 import tempfile
 import types
 import unittest
 from unittest import mock
 
-from recall import chunking, cli, db, embed
+from recall import chunking, cli, config, db, embed
 
 
 class TestDoctorReadsTheVector(unittest.TestCase):
@@ -157,3 +158,34 @@ class TestDoctorNamesEachSourceOnce(unittest.TestCase):
         self.assertIn("activity (3 folders)", line)
         self.assertIn("mbox", line)
         self.assertNotIn("mbox (", line)
+
+
+class TestDoctorAndCaptions(unittest.TestCase):
+    def doctor(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as data:
+            args = types.SimpleNamespace(data=data)
+            with mock.patch.object(db, "connect",
+                                   side_effect=OSError("no database")), \
+                 mock.patch.object(chunking, "measure_density",
+                                   return_value=3.0), \
+                 mock.patch.object(embed, "embed",
+                                   lambda texts, timeout=60: [[0.0] * 1024]), \
+                 mock.patch.object(config, "WORK_DIR",
+                                   pathlib.Path(data) / "work"), \
+                 contextlib.redirect_stdout(out):
+                cli.cmd_doctor(args)
+        return out.getvalue()
+
+    def test_no_vision_endpoint_is_a_note_not_a_problem(self):
+        with mock.patch.object(config, "VISION_URL", ""):
+            text = self.doctor()
+        self.assertIn("note  no vision endpoint", text)
+
+    def test_an_endpoint_lists_the_optional_binaries(self):
+        with mock.patch.object(config, "VISION_URL", "http://v"), \
+             mock.patch.object(config, "VISION_MODEL", "llava"):
+            text = self.doctor()
+        self.assertIn("vision endpoint  http://v", text)
+        self.assertIn("tesseract", text)
+        self.assertIn("magick", text)

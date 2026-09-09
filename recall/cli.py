@@ -130,6 +130,29 @@ def cmd_doctor(args):
                  f"{config.CHAT_URL}  {type(e).__name__}")
             problems += 1
 
+    from . import captions, imagery
+    if not config.VISION_URL:
+        _note("no vision endpoint set", "images are not captioned; set "
+              "RECALL_VISION_URL, see docs/sources.md")
+    else:
+        _ok("vision endpoint", f"{config.VISION_URL}  model "
+            f"{config.VISION_MODEL or '(unset)'}  not probed; "
+            f"`recall caption --limit 1` is the test")
+        if imagery.available():
+            _ok("Pillow installed")
+        else:
+            _bad("Pillow missing", "pip install 'recall[captions]'")
+            problems += 1
+        for binary, what in (("magick", "images Pillow cannot read (HEIC)"),
+                             ("tesseract", "text inside images")):
+            if shutil.which(binary):
+                _ok(f"{binary} installed")
+            else:
+                _note(f"{binary} missing", f"{what} skipped")
+    held = captions.count(config.WORK_DIR)
+    if held:
+        _ok("caption records", f"{held:,} in {config.WORK_DIR}/captions")
+
     from . import chunking
     ratio = chunking.measure_density(["the quick brown fox " * 40])
     if ratio:
