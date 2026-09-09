@@ -142,6 +142,9 @@ class IMessage(Source):
                 out.append((p, {"rowid": rid, "thread": guid or "",
                                 "handle": handle, "at": _unix(date),
                                 "mine": bool(mine)}))
+        # Earliest message first, so an image sent twice always dates by
+        # its first sending. The query's own order changed between runs.
+        out.sort(key=lambda pm: (pm[1]["at"], pm[1]["rowid"]))
         return out
 
     def media(self, path):

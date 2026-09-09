@@ -230,3 +230,24 @@ class TestChunksRespectTheBudget(unittest.TestCase):
                 self.assertLessEqual(len(c.text), budget)
                 self.assertIn("\nSaid around it: ", c.text)
                 self.assertIn("\nText in image: ", c.text)
+
+
+class TestTheEarliestMessageWins(unittest.TestCase):
+    """An image sent twice has two links. Without an order the first link
+    the query returned won, and it flipped between runs: an ingest rewrote
+    five chunks that nothing had changed."""
+
+    def test_a_repeated_image_dates_by_its_first_message(self):
+        msgs = [(9, "c1", "+15550001111", T + 9000, False, "again"),
+                (2, "c1", "+15550001111", T, False, "first time")]
+        att = [(PREFIX + "zz/G9/later.jpg", 9), (PREFIX + "ab/G1/p.jpg", 2)]
+        files = {"zz/G9/later.jpg": FILES["ab/G1/p.jpg"],
+                 "ab/G1/p.jpg": FILES["ab/G1/p.jpg"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, msgs, att, files)
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a dog")
+            captions.HashCache(work).get(root / "Attachments/zz/G9/later.jpg")
+            [c] = attachment_chunks(root, work)
+        self.assertEqual(c.occurred_at, "2021-05-03T00:00:00Z")
+        self.assertIn("first time", c.text)
