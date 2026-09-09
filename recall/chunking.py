@@ -163,3 +163,31 @@ def rollup(records, period=lambda r: r["at"][:7]):
     for r in records:
         buckets[period(r)].append(r)
     return sorted(buckets.items())
+
+
+def fit(room, lines, floor):
+    """Cut optional lines to share `room`, each costing its length plus a
+    newline. A line that fits keeps its length and hands its spare to the
+    others, the rest split evenly. A line cut under `floor` is dropped,
+    longest first, so no bare label is indexed and its room passes on."""
+    lines = [l for l in lines if l]
+    while lines:
+        need = [len(l) + 1 for l in lines]
+        if sum(need) <= room:
+            return lines
+        share = room // len(lines)
+        spare = sum(share - n for n in need if n < share)
+        cut = []
+        for l, n in zip(lines, need):
+            if n <= share:
+                cut.append(l)
+                continue
+            take = min(n, share + spare) - 1
+            spare -= max(take + 1 - share, 0)
+            cut.append(l[:max(take, 0)])
+        if all(len(c) >= floor for c in cut):
+            return cut
+        longest = max((i for i, c in enumerate(cut) if len(c) < floor),
+                      key=lambda i: need[i])
+        del lines[longest]
+    return []

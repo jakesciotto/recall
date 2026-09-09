@@ -10,8 +10,10 @@ import collections
 import datetime as dt
 import json
 import os
+import pathlib
+import re
 
-from ..chunking import parts, sessions
+from ..chunking import fit, parts, sessions
 from .base import Chunk, Source, walk
 
 # iMessage splits at 30 minutes. Twitter DMs are asynchronous, and at 30
@@ -21,6 +23,23 @@ DM_SESSION_GAP_S = 86_400
 MAX_TURNS = 20
 
 DM_FILES = ("direct-messages.js", "direct-messages-group.js")
+MEDIA_DIRS = ("tweets_media", "direct_messages_media",
+              "direct_messages_group_media")
+
+# "<digits>-<hash>.<ext>". The hash itself can start with a dash, so anchor
+# on the leading digit run rather than splitting on the separator.
+_MEDIA_ID = re.compile(r"^(\d+)-")
+
+
+def media_id(name):
+    """The tweet or DM id a media file name carries, or None."""
+    m = _MEDIA_ID.match(os.path.basename(name))
+    return m.group(1) if m else None
+
+
+def _iso(ts):
+    return dt.datetime.fromtimestamp(
+        ts, dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def load_js(path):
@@ -135,6 +154,79 @@ class Twitter(Source):
         yield from self._dm_chunks(convos, handle_map(tweets), me, budget)
         yield from trend_chunks(tweets, convos, handle_map(tweets), me, budget,
                                 trends.zone())
+        yield from self._media_chunks(path, tweets, convos, me, budget)
+
+    def media(self, path):
+        out = []
+        for name in MEDIA_DIRS:
+            folder = pathlib.Path(path) / name
+            if folder.is_dir():
+                out.extend(sorted(p for p in folder.iterdir()
+                                  if p.is_file() and not p.name.startswith(".")))
+        return out
+
+    def _parents(self, tweets, convos, handles, me):
+        """Tweet or DM id to what carried the media: its words, time, and
+        for a DM the thread and the sender."""
+        idx = {}
+        for t in tweets:
+            tid = t["tweet"].get("id_str")
+            if tid:
+                idx[tid] = {"kind": "tweet", "text": t["tweet"]["full_text"],
+                            "at": _tweet_at(t).timestamp(), "thread": None,
+                            "sender": None, "who": None, "mine": True}
+        for r in dm_records(convos, handles, me):
+            idx[str(r["rowid"])] = {"kind": "dm", "text": r["text"],
+                                    "at": r["at"], "thread": r["thread"],
+                                    "sender": r["sender"], "who": r["handle"],
+                                    "mine": r["mine"]}
+        return idx
+
+    def _media_chunks(self, path, tweets, convos, me, budget):
+        """One chunk per captioned media file, from the cache `recall
+        caption` fills, linked to its tweet or DM by the file name prefix.
+        An orphan keeps its chunk undated: dropping it would lose the
+        picture entirely."""
+        from .. import captions, config
+        parents = self._parents(tweets, convos, handle_map(tweets), me)
+        hashes = captions.HashCache(config.WORK_DIR)
+        seen = set()
+        for file in self.media(path):
+            sha = hashes.known(file)
+            if sha is None or sha in seen:
+                continue
+            seen.add(sha)
+            rec = captions.read_record(config.WORK_DIR, sha)
+            if not rec or rec.get("skipped") or not rec.get("caption"):
+                continue
+            parent = parents.get(media_id(file.name) or "")
+            is_dm = file.parent.name != "tweets_media"
+            who = parent["who"] if parent and is_dm and not parent["mine"] else None
+            head = (f"[{_iso(parent['at'])[:10] if parent else 'undated'}, "
+                    f"{'DM media' if is_dm else 'tweet media'}"
+                    f"{' with ' + who if who else ''}]")
+            noun = "Video" if rec.get("kind") == "video" else "Image"
+            text = f"{head}\n{noun}: {rec['caption']}"
+            with_line = ""
+            if parent and parent["text"].strip():
+                if parent["kind"] == "tweet":
+                    with_line = f"Posted with: {parent['text']}"
+                else:
+                    speaker = "me" if parent["mine"] else parent["who"]
+                    with_line = f"Said with: {speaker}: {parent['text']}"
+            ocr = rec.get("ocr_text") or ""
+            extra = [f"Text in image: {ocr}"
+                     if len(ocr) >= captions.OCR_MIN_CHARS else "", with_line]
+            floor = len("Said around it: ") + captions.OCR_MIN_CHARS
+            for line in fit(budget - len(text), extra, floor):
+                text += "\n" + line
+            yield Chunk(
+                ref=f"twitter-media:{sha}", text=text, source=self.name,
+                occurred_at=_iso(parent["at"]) if parent else None,
+                date_confidence="exact" if parent else "low",
+                participants=[parent["sender"]]
+                if parent and parent["sender"] and not parent["mine"] else [],
+                thread=parent["thread"] if parent else None)
 
     def _tweet_chunks(self, tweets, budget):
         """A retweet arrives as "RT @someone: ..." and keeps that prefix. It

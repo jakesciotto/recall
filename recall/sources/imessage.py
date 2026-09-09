@@ -48,34 +48,6 @@ def local_path(filename, root):
     return root / filename[len(ATTACHMENT_PREFIX):]
 
 
-def _fit(room, lines, floor):
-    """Cut optional lines to share `room`, each costing its length plus a
-    newline. A line that fits keeps its length and hands its spare to the
-    others, the rest split evenly. A line cut under `floor` is dropped,
-    longest first, so no bare label is indexed and its room passes on."""
-    lines = [l for l in lines if l]
-    while lines:
-        need = [len(l) + 1 for l in lines]
-        if sum(need) <= room:
-            return lines
-        share = room // len(lines)
-        spare = sum(share - n for n in need if n < share)
-        cut = []
-        for l, n in zip(lines, need):
-            if n <= share:
-                cut.append(l)
-                continue
-            take = min(n, share + spare) - 1
-            spare -= max(take + 1 - share, 0)
-            cut.append(l[:max(take, 0)])
-        if all(len(c) >= floor for c in cut):
-            return cut
-        longest = max((i for i, c in enumerate(cut) if len(c) < floor),
-                      key=lambda i: need[i])
-        del lines[longest]
-    return []
-
-
 def context_window(rows, ats, at, contacts, span_s=CONTEXT_SPAN_S,
                    turns=CONTEXT_TURNS):
     """Up to `turns` texted lines either side of `at`, within `span_s`, in
@@ -192,6 +164,7 @@ class IMessage(Source):
         fills. Nothing here reads image bytes: a file the cache has not
         hashed yet is simply not ready."""
         from .. import captions, config
+        from ..chunking import fit
         from ..naming import header
         contacts = contacts or {}
         by_thread = {}
@@ -227,7 +200,7 @@ class IMessage(Source):
                      if len(ocr) >= captions.OCR_MIN_CHARS else "",
                      f"Said around it: {around}" if around else ""]
             floor = len("Said around it: ") + captions.OCR_MIN_CHARS
-            for line in _fit(budget - len(text), extra, floor):
+            for line in fit(budget - len(text), extra, floor):
                 text += "\n" + line
             yield Chunk(ref=f"attachment:{sha}", text=text, source=self.name,
                         occurred_at=when, date_confidence="exact",

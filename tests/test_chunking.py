@@ -192,3 +192,27 @@ class TestParts(unittest.TestCase):
         lines = [str(i) for i in range(50)]
         got = [t.split("\n")[1:] for _, t in chunking.parts(lines, 60, self.head)]
         self.assertEqual([x for p in got for x in p], lines)
+
+
+class TestFit(unittest.TestCase):
+    """Optional lines share what the budget leaves. Shared by the messages
+    and Twitter media chunks."""
+
+    def test_lines_that_fit_keep_their_length(self):
+        self.assertEqual(chunking.fit(100, ["a" * 10, "b" * 20], 5),
+                         ["a" * 10, "b" * 20])
+
+    def test_a_short_line_hands_its_spare_to_the_long_one(self):
+        got = chunking.fit(100, ["a" * 10, "b" * 500], 5)
+        self.assertEqual(got[0], "a" * 10)
+        self.assertEqual(len(got[1]), 100 - 11 - 1)
+
+    def test_two_long_lines_split_the_room(self):
+        got = chunking.fit(100, ["a" * 500, "b" * 500], 5)
+        self.assertEqual([len(g) for g in got], [49, 49])
+
+    def test_a_line_cut_to_a_stub_is_dropped_longest_first(self):
+        self.assertEqual(chunking.fit(30, ["a" * 25, "b" * 500], 20), ["a" * 25])
+
+    def test_empty_lines_are_ignored(self):
+        self.assertEqual(chunking.fit(100, ["", "x"], 1), ["x"])
