@@ -48,3 +48,26 @@ class TestCaptionCommand(unittest.TestCase):
                                lambda *a, **k: {"ok": 1, "failed": 2}), \
              contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(cli.main(["caption"]), 1)
+
+
+class TestCaptionLogFlushes(unittest.TestCase):
+    """A detached run redirected to a file showed an empty log for the
+    whole hashing pass: print without a flush sits in the block buffer."""
+
+    def test_each_log_line_reaches_the_file_at_once(self):
+        captured = {}
+
+        def run(root, work, jobs=3, limit=None, log=print):
+            captured["log"] = log
+            return {}
+
+        class Out(io.StringIO):
+            flushes = 0
+
+            def flush(self):
+                Out.flushes += 1
+        with mock.patch.object(captions, "run", run), \
+             contextlib.redirect_stdout(Out()):
+            cli.main(["caption"])
+            captured["log"]("one line")
+        self.assertGreaterEqual(Out.flushes, 1)

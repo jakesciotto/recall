@@ -203,8 +203,11 @@ def cmd_ingest(args):
 def cmd_caption(args):
     from . import captions
     root = pathlib.Path(args.data or config.DATA_DIR)
+    # A detached run writes to a file; without the flush the log stays
+    # empty for the whole hashing pass.
     counts = captions.run(root, config.WORK_DIR, jobs=args.jobs,
-                          limit=args.limit)
+                          limit=args.limit,
+                          log=lambda line: print(line, flush=True))
     print(json.dumps(counts, indent=2))
     return 1 if counts.get("failed") else 0
 
