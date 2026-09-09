@@ -21,6 +21,6 @@ jobs:
       # the whole suite, so a green run here means the tests are isolated,
       # and a red run on a fresh machine is the first-run bug it exists to
       # catch.
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,captions]"
       - run: recall --help
       - run: python -m pytest -q

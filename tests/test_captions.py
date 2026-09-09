@@ -77,6 +77,7 @@ def image_file(tmp, name="a.png", w=400, h=300):
     return p
 
 
+@unittest.skipUnless(imagery.available(), "needs the captions extra (Pillow)")
 class TestProcess(unittest.TestCase):
     def test_a_caption_is_written_with_the_model_name(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -158,6 +159,7 @@ class Media(base.Source):
         return self.files
 
 
+@unittest.skipUnless(imagery.available(), "needs the captions extra (Pillow)")
 class TestRun(unittest.TestCase):
     def test_it_captions_every_media_file_the_adapters_declare(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -196,6 +198,7 @@ class TestRun(unittest.TestCase):
             self.assertIn("RECALL_VISION_URL", str(ctx.exception))
 
 
+@unittest.skipUnless(imagery.available(), "needs the captions extra (Pillow)")
 class TestUncaptioned(unittest.TestCase):
     def test_it_counts_images_without_a_record_and_never_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:

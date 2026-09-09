@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from recall import ingest, naming
+from recall import imagery, ingest, naming
 from recall.sources import base
 
 
@@ -329,6 +329,7 @@ class Snapshots(base.Source):
         return sorted(path.glob("*.png"))
 
 
+@unittest.skipUnless(imagery.available(), "needs the captions extra (Pillow)")
 class TestIngestReportsUncaptionedMedia(unittest.TestCase):
     def test_the_log_says_how_many_images_wait_for_recall_caption(self):
         from PIL import Image

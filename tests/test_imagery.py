@@ -52,6 +52,7 @@ class TestKindByMagicBytes(unittest.TestCase):
         self.assertEqual(self.kind_of("c", b"RIFF\x00\x00\x00\x00WEBP"), "webp")
 
 
+@unittest.skipUnless(imagery.available(), "needs the captions extra (Pillow)")
 class TestDecode(unittest.TestCase):
     def test_a_png_becomes_a_jpeg_with_its_original_size(self):
         with tempfile.TemporaryDirectory() as tmp:
