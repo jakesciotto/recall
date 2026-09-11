@@ -250,3 +250,47 @@ class TestRun(unittest.TestCase):
                                log=lambda *a, **k: None)
         self.assertEqual(counts, {"partly": 2})
         self.assertEqual(len(conn.log), 2)
+
+
+class TestReference(unittest.TestCase):
+    """An expect: line from the eval file reaches the judge as the author's
+    reference, and the judge grades the answer against it as `correct`.
+    Without one the prompt asks for no such field and none is stored:
+    a NULL says "no reference", where 'unknown' would say "could not tell"."""
+
+    REPLY = ('{"grounded": "yes", "retrieval": "yes", "hedged": "no", '
+             '"question_type": "recall", "correct": "partly", "note": "n"}')
+
+    def test_the_reference_reaches_the_prompt_with_a_correct_field(self):
+        prompt = judge.build_prompt(dict(ROW, expected="the same person both years"), SOURCES)
+        self.assertIn("Reference: the same person both years", prompt)
+        self.assertIn('"correct"', prompt)
+
+    def test_without_a_reference_the_prompt_asks_for_no_correct_field(self):
+        prompt = judge.build_prompt(ROW, SOURCES)
+        self.assertNotIn("Reference", prompt)
+        self.assertNotIn("correct", prompt)
+
+    def test_correct_is_parsed_only_when_a_reference_was_given(self):
+        self.assertEqual(judge.parse_verdict(self.REPLY, expected=True)["judge_correct"], "partly")
+        self.assertIsNone(judge.parse_verdict(self.REPLY)["judge_correct"])
+
+    def test_judge_row_grades_against_the_row_reference(self):
+        out = judge.judge_row(dict(ROW, expected="x"), SOURCES,
+                              chat=lambda p, model=None: self.REPLY, model="m")
+        self.assertEqual(out["judge_correct"], "partly")
+        self.assertIsNone(judge.judge_row(ROW, SOURCES,
+                                          chat=lambda p, model=None: self.REPLY,
+                                          model="m")["judge_correct"])
+
+    def test_save_writes_judge_correct_and_never_the_reference(self):
+        conn = Conn()
+        judge.save(conn, 7, {"judge_correct": "yes", "expected": "x"})
+        sql = conn.log[0][0]
+        self.assertIn("judge_correct = %s", sql)
+        self.assertNotIn("expected", sql)
+
+    def test_unjudged_carries_the_reference(self):
+        with mock.patch.object(db, "fetch", return_value=[]) as fetch:
+            judge.unjudged(Conn(), 5)
+        self.assertIn("expected", fetch.call_args.args[1])

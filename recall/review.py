@@ -12,8 +12,14 @@ circular.
 **The judge's verdict stays hidden until you decide.** Showing it first
 anchors you to it, the two then agree more often than they should, and the
 measurement quietly becomes worthless. The review screen carries the
-question, the answer, and the sources, and nothing else. The judge's
-opinion prints after your keypress.
+question, the author's reference when the eval file gave one, the answer,
+and the sources, and nothing else. The judge's opinion prints after your
+keypress.
+
+**The reference shows before you decide, on purpose.** It is not an
+opinion about the answer, it is what the question's author wrote down as
+the answer or its source. Without it, a question like "whom did I text
+most in 2021" asks you to recount the archive from memory.
 
 Nothing here touches chunk, and nothing runs on the answer path.
 """
@@ -49,9 +55,9 @@ def unlabelled(conn, limit, redo=False):
     parts = ["answer IS NOT NULL"]
     if not redo:
         parts.append("verdict IS NULL")
-    return db.fetch(conn, "SELECT id, question, answer, asked_at, k, verdict, "
-                          "note, judge_grounded, judge_retrieval, judge_hedged, "
-                          "judge_question_type, judge_note "
+    return db.fetch(conn, "SELECT id, question, expected, answer, asked_at, k, "
+                          "verdict, note, judge_grounded, judge_retrieval, "
+                          "judge_hedged, judge_question_type, judge_note "
                           f"FROM query_log WHERE {' AND '.join(parts)} "
                           f"ORDER BY id DESC LIMIT {int(limit)}")
 
@@ -68,6 +74,10 @@ def format_row(row, sources, label=None):
         f"#{row['id']}   asked {str(row.get('asked_at'))[:19]}   k={row.get('k')}",
         "",
         f"QUESTION  {row.get('question')}",
+    ]
+    if (row.get("expected") or "").strip():
+        lines += ["", f"REFERENCE {row['expected'].strip()}"]
+    lines += [
         "",
         "ANSWER",
         _clip(row.get("answer"), MAX_ANSWER_CHARS),

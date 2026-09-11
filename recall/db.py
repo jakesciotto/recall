@@ -98,6 +98,11 @@ ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_retrieval text;
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_hedged text;
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_question_type text;
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_note text;
+-- The eval file's expect: line, the author's reference. Only recall eval
+-- writes it. The review shows it before the keypress, the judge grades the
+-- answer against it as judge_correct, and NULL there means no reference.
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS expected text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_correct text;
 CREATE INDEX IF NOT EXISTS query_log_unjudged_idx
   ON query_log (id) WHERE judged_at IS NULL;
 """

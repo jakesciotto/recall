@@ -221,3 +221,23 @@ class TestModelName(unittest.TestCase):
 
     def test_a_plain_name_passes_through(self):
         self.assertEqual(querylog.model_name("llama3.1"), "llama3.1")
+
+
+class TestReferenceColumn(unittest.TestCase):
+    """An eval file's expect: line lands in the row as `expected`, and the
+    judge's grade against it as `judge_correct`. Both are text with no
+    CHECK, for the reason the other judge columns have none."""
+
+    def test_the_schema_carries_both_columns(self):
+        self.assertIn("ADD COLUMN IF NOT EXISTS expected text", db.LOG_SCHEMA)
+        self.assertIn("ADD COLUMN IF NOT EXISTS judge_correct text", db.LOG_SCHEMA)
+
+    def test_an_expectation_lands_in_the_row(self):
+        conn = Conn()
+        querylog.log_query(conn, **entry(expected="the same person"))
+        sql, params = conn.log[0]
+        self.assertIn("expected", sql)
+        self.assertIn("the same person", params)
+
+    def test_no_expectation_is_still_a_valid_row(self):
+        self.assertEqual(querylog.log_query(Conn(), **entry()), 41)

@@ -49,40 +49,42 @@ def fake_conn():
     yield object()
 
 
-class TestRun(unittest.TestCase):
-    def run_eval(self, text, chat_url="http://x/v1", answer_text="it [1]"):
-        logged = []
-        out = io.StringIO()
-        with tempfile.TemporaryDirectory() as d:
-            path = pathlib.Path(d) / "q.md"
-            path.write_text(text)
-            with mock.patch.object(evalrun.db, "connect", fake_conn), \
-                 mock.patch.object(evalrun.retrieve, "search_traced",
-                                   return_value=(HITS, retrieve.NO_DATES, TRACE)), \
-                 mock.patch.object(evalrun.answer, "chat",
-                                   return_value=answer_text), \
-                 mock.patch.object(evalrun.config, "CHAT_URL", chat_url), \
-                 mock.patch.object(evalrun.querylog, "log",
-                                   lambda **kw: logged.append(kw) or 1), \
-                 contextlib.redirect_stdout(out):
-                n = evalrun.run(path, embedder=lambda t: [0.0] * 4)
-        return n, logged, out.getvalue()
+def run_eval(text, chat_url="http://x/v1", answer_text="it [1]"):
+    logged = []
+    out = io.StringIO()
+    with tempfile.TemporaryDirectory() as d:
+        path = pathlib.Path(d) / "q.md"
+        path.write_text(text)
+        with mock.patch.object(evalrun.db, "connect", fake_conn), \
+             mock.patch.object(evalrun.retrieve, "search_traced",
+                               return_value=(HITS, retrieve.NO_DATES, TRACE)), \
+             mock.patch.object(evalrun.answer, "chat",
+                               return_value=answer_text), \
+             mock.patch.object(evalrun.config, "CHAT_URL", chat_url), \
+             mock.patch.object(evalrun.querylog, "log",
+                               lambda **kw: logged.append(kw) or 1), \
+             contextlib.redirect_stdout(out):
+            n = evalrun.run(path, embedder=lambda t: [0.0] * 4)
+    return n, logged, out.getvalue()
 
+
+
+class TestRun(unittest.TestCase):
     def test_every_question_is_asked_and_logged_as_eval(self):
-        n, logged, _ = self.run_eval(FILE)
+        n, logged, _ = run_eval(FILE)
         self.assertEqual(n, 3)
         self.assertEqual([r["client"] for r in logged], ["eval"] * 3)
         self.assertEqual(logged[0]["question"], "What is the IP of the box?")
         self.assertEqual(logged[0]["answer"], "it [1]")
 
     def test_it_prints_one_line_per_question_with_the_citation_count(self):
-        _, _, text = self.run_eval(FILE)
+        _, _, text = run_eval(FILE)
         lines = [l for l in text.splitlines() if l.strip().startswith(("1", "2", "3"))]
         self.assertEqual(len(lines), 3)
         self.assertIn("cited 1", lines[0])
 
     def test_without_a_chat_endpoint_it_still_logs_the_retrieval(self):
-        n, logged, text = self.run_eval(FILE, chat_url="")
+        n, logged, text = run_eval(FILE, chat_url="")
         self.assertEqual(n, 3)
         self.assertIsNone(logged[0]["answer"])
         self.assertIn("no generation endpoint", text)
@@ -106,3 +108,34 @@ class TestRun(unittest.TestCase):
         self.assertEqual(n, 3)
         self.assertEqual(logged[0]["error"], "OSError: model down")
         self.assertIsNone(logged[0]["answer"])
+
+
+FILE_WITH_EXPECT = """## Aggregates
+1. Whom did I text most in 2021?
+   expect: messages; the same person as in 2019
+2. What did I tweet on 2019-01-01?
+
+   expect: twitter, one day chunk
+3. What did I never write about?
+"""
+
+
+class TestExpectations(unittest.TestCase):
+    """An `expect:` line under a question is the author's reference: what
+    the review shows before the keypress and what the judge grades
+    against. Without it an aggregate question is graded from memory."""
+
+    def test_an_expect_line_attaches_to_the_question_above_it(self):
+        self.assertEqual(evalrun.parse(FILE_WITH_EXPECT), [
+            ("Whom did I text most in 2021?", "messages; the same person as in 2019"),
+            ("What did I tweet on 2019-01-01?", "twitter, one day chunk"),
+            ("What did I never write about?", None),
+        ])
+
+    def test_an_expect_line_before_any_question_is_ignored(self):
+        self.assertEqual(evalrun.parse("expect: nothing\n1. q\n"), [("q", None)])
+
+    def test_the_expectation_is_logged_with_its_question(self):
+        _, logged, _ = run_eval(FILE_WITH_EXPECT)
+        self.assertEqual(logged[0]["expected"], "messages; the same person as in 2019")
+        self.assertIsNone(logged[2]["expected"])

@@ -18,6 +18,20 @@ Every question is logged with `client = eval`, which keeps a batch separable
 from what you ask by hand. Keep the file wherever your private notes live;
 it is your data, not recall's.
 
+An `expect:` line under a question is your reference: the answer, or the
+source it should come from.
+
+```markdown
+7. Whom did I text most in 2019, and in 2021? Did the top contact change?
+   expect: messages; the same person both years, so the answer is no
+```
+
+It travels with the question into the log as `expected`. The review shows
+it before your keypress, and the judge grades the answer against it. Write
+one for every question whose answer is a count over the archive. You cannot
+label "whom did I text most" from memory, and a `GROUP BY` over the index
+can tell you before you ask.
+
 ## The judge
 
 ```bash
@@ -29,7 +43,11 @@ recall judge --dry-run       # print verdicts, write nothing
 A model reads each logged question, the sources the answer was given, and
 the answer, and writes four estimates: was the answer grounded in what it
 cited, did retrieval surface what the question needed, did the model hedge
-while holding the evidence, and what kind of question was it. The sources
+while holding the evidence, and what kind of question was it. When the
+question carries a reference, it writes a fifth, `judge_correct`: does the
+answer agree with the reference. A row without a reference gets NULL there,
+not `unknown`. NULL says there was nothing to grade against; `unknown` says
+the model could not tell. The sources
 keep the numbers the answer cited, because a citation indexes the prompt,
 and renumbering them makes every grounding judgment wrong.
 
@@ -69,6 +87,12 @@ worse than a missing one.
 **The judge's opinion stays hidden until after your keypress.** Showing it
 first anchors you to it, the two then agree more often than they should,
 and the measurement quietly becomes worthless.
+
+**The reference shows before your keypress, on purpose.** It is not an
+opinion about the answer. It is what you wrote down as the answer, or its
+source, when you wrote the question. Hidden, a question like "whom did I
+text most in 2021" asks you to recount the archive from memory, and a
+label made that way is a guess with a name.
 
 The review writes only `verdict` and `note`. It cannot write a `judge_*`
 column. Neither side may overwrite the other, or comparing them is circular.
@@ -131,6 +155,19 @@ split the comparison. Cited answers measure the judge's grounding call.
 Declines measure `judge_hedged` and `judge_retrieval`, and the judge was
 inconsistent there: on one decline it wrote retrieval `yes` and hedged
 `no`, which its own definition of hedged forbids.
+
+Where a reference exists, compare `judge_correct` against `verdict` instead.
+A decline against a reference is `no` by definition, because the answer
+misses what the reference names, so the decline problem above does not
+arise there.
+
+```sql
+-- Rows with a reference: the judge's correctness call against the human.
+SELECT judge_correct, verdict, count(*)
+FROM query_log
+WHERE expected IS NOT NULL AND verdict IS NOT NULL AND judged_at IS NOT NULL
+GROUP BY 1, 2 ORDER BY 1, 2;
+```
 
 ```sql
 -- Cited answers only: the judge's grounding call against the human verdict.

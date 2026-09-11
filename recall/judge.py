@@ -39,7 +39,7 @@ QUESTION_TYPES = ("recall", "date", "summary", "open")
 
 # The judge writes only these.
 FIELDS = ("judge_grounded", "judge_retrieval", "judge_hedged",
-          "judge_question_type", "judge_note", "judge_model")
+          "judge_question_type", "judge_correct", "judge_note", "judge_model")
 
 INSTRUCTIONS = """You grade an answer that a retrieval system produced from a
 personal archive. Judge only what the sources support. Do not use outside
@@ -50,7 +50,7 @@ Reply with JSON and nothing else:
 {"grounded": "yes|partly|no",
  "retrieval": "yes|partly|no",
  "hedged": "yes|no",
- "question_type": "recall|date|summary|open",
+ "question_type": "recall|date|summary|open",{correct_field}
  "note": "one sentence"}
 
 grounded: does every claim in the answer trace to a source it cited, AND
@@ -63,7 +63,16 @@ failure, not a style problem.
 retrieval: did the sources contain what the question needed?
 hedged: did the answer decline or hedge although the sources held the answer?
 question_type: recall is a fact from the archive, date is a when question,
-summary asks for a synthesis, open is anything broader."""
+summary asks for a synthesis, open is anything broader.{correct_rule}"""
+
+# Only when the row carries a reference. Asking for a grade against a
+# reference that is not there invites the model to invent one.
+CORRECT_FIELD = '\n "correct": "yes|partly|no",'
+CORRECT_RULE = """
+correct: does the answer agree with the reference? The reference is what
+the question's author expects: an answer, or the source the answer should
+come from. yes when the answer matches it, partly when it matches in part,
+no when the answer contradicts it or misses it."""
 
 _TRUNCATED = " ...[truncated]"
 
@@ -116,6 +125,12 @@ def build_prompt(row, sources, label=None):
     wrong. The sources are relabelled exactly as the answerer saw them.
     """
     label = config.USER_LABEL if label is None else label
+    expected = (row.get("expected") or "").strip()
+    instructions = (INSTRUCTIONS
+                    .replace("{speaker_rule}", speaker_rule(label))
+                    .replace("{correct_field}", CORRECT_FIELD if expected else "")
+                    .replace("{correct_rule}", CORRECT_RULE if expected else ""))
+    reference = f"Reference: {expected}\n\n" if expected else ""
     blocks = []
     for s in sources:
         where = s.get("path") or s.get("ref")
@@ -124,8 +139,8 @@ def build_prompt(row, sources, label=None):
         blocks.append(f"[{s['n']}] {where} ({day}, {s.get('source')})\n"
                       f"{_clip(text, MAX_SOURCE_CHARS)}")
     text = row.get("answer") or "(the system produced no answer)"
-    return (INSTRUCTIONS.replace("{speaker_rule}", speaker_rule(label)) + "\n\n"
-            f"Question: {row.get('question')}\n\n"
+    return (instructions + "\n\n"
+            f"Question: {row.get('question')}\n\n" + reference +
             f"Sources:\n\n" + "\n\n".join(blocks) + "\n\n"
             f"Answer:\n{_clip(text, MAX_ANSWER_CHARS)}\n")
 
@@ -163,8 +178,12 @@ def _one_of(value, allowed):
     return text if text in allowed else "unknown"
 
 
-def parse_verdict(text):
-    """A model reply as the judge columns. Never raises."""
+def parse_verdict(text, expected=False):
+    """A model reply as the judge columns. Never raises.
+
+    judge_correct is NULL unless the row carried a reference: NULL says
+    "nothing to grade against", where 'unknown' says "could not tell".
+    """
     data = _json_object(text)
     return {
         "judge_grounded": _one_of(data.get("grounded"), TRI),
@@ -172,6 +191,7 @@ def parse_verdict(text):
         "judge_hedged": _one_of(data.get("hedged"), BOOLISH),
         "judge_question_type": _one_of(data.get("question_type"),
                                        QUESTION_TYPES),
+        "judge_correct": _one_of(data.get("correct"), TRI) if expected else None,
         "judge_note": _clip(str(data.get("note") or ""), MAX_NOTE_CHARS),
     }
 
@@ -198,16 +218,18 @@ def judge_row(row, sources, chat=None, model=None):
     chat = chat or answer.chat
     model = model or judge_model()
     text = row.get("answer") or ""
+    expected = bool((row.get("expected") or "").strip())
     if not render._CITE.search(text) and not is_decline(text):
-        out = parse_verdict(None)
+        out = parse_verdict(None, expected=expected)
         out["judge_grounded"] = "no"
         out["judge_note"] = "cites no source and does not decline"
         out["judge_model"] = "rule"
         return out
     try:
-        out = parse_verdict(chat(build_prompt(row, sources), model=model))
+        out = parse_verdict(chat(build_prompt(row, sources), model=model),
+                            expected=expected)
     except Exception as e:
-        out = parse_verdict(None)
+        out = parse_verdict(None, expected=expected)
         out["judge_note"] = f"{type(e).__name__}: {e}"[:MAX_NOTE_CHARS]
     out["judge_model"] = model
     return out
@@ -233,7 +255,7 @@ def unjudged(conn, limit, redo=False):
     parts = ["answer IS NOT NULL"]
     if not redo:
         parts.append("judged_at IS NULL")
-    return db.fetch(conn, "SELECT id, question, answer, k, date_phrase "
+    return db.fetch(conn, "SELECT id, question, expected, answer, k, date_phrase "
                           f"FROM query_log WHERE {' AND '.join(parts)} "
                           f"ORDER BY id LIMIT {int(limit)}")
 
@@ -269,9 +291,11 @@ def run(conn, limit, redo=False, dry_run=False, chat=None, model=None,
         if not dry_run:
             save(conn, row["id"], verdict)
         stamp = dt.datetime.now().strftime("%H:%M:%S")
+        correct = verdict.get("judge_correct")
         log(f"  {stamp}  #{row['id']:<5} grounded={verdict['judge_grounded']:<7}"
             f" retrieval={verdict['judge_retrieval']:<7}"
-            f" type={verdict['judge_question_type']:<8}"
+            + (f" correct={correct:<7}" if correct else "")
+            + f" type={verdict['judge_question_type']:<8}"
             f" {str(row['question'])[:44]}")
     summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
     log(f"judged {len(rows):,} rows. grounded: {summary}")

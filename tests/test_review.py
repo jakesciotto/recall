@@ -120,3 +120,22 @@ class TestLoop(unittest.TestCase):
         n, conn, text = self.loop(["", "x", "b", "", "q"])
         self.assertEqual(n, 1)
         self.assertIn("press g, b, s, or q", text)
+
+
+class TestReference(unittest.TestCase):
+    """The eval file's expect: line is the author's reference. Unlike the
+    judge it shows BEFORE the keypress: it is what the human grades
+    against, and without it an aggregate question is graded from memory."""
+
+    def test_the_reference_shows_before_the_answer(self):
+        screen = review.format_row(dict(ROW, expected="the same person both years"), SOURCES)
+        self.assertIn("REFERENCE", screen)
+        self.assertLess(screen.index("the same person both years"), screen.index("ANSWER"))
+
+    def test_a_row_without_a_reference_has_no_reference_line(self):
+        self.assertNotIn("REFERENCE", review.format_row(ROW, SOURCES))
+
+    def test_the_queue_carries_the_reference(self):
+        with mock.patch.object(db, "fetch", return_value=[]) as fetch:
+            review.unlabelled(Conn(), 5)
+        self.assertIn("expected", fetch.call_args.args[1])

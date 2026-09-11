@@ -419,3 +419,16 @@ buffering off, and an intermediate service must pipe rather than await.
 information: bullets and bold separate distinct findings, and flattening them
 produces a wall of text that reads worse than stray asterisks. Parse it once,
 server-side, into a structure, and never send HTML built from archive text.
+
+**A review screen that hides the reference asks the human to recount the
+archive.** The eval file carried an `expect:` line under every question,
+filled from the index by count, and the review loop showed the question, the
+answer and the sources, never that line. So "whom did I text most in 2021"
+asked the labeller to redo a `GROUP BY` from memory, and the labels on every
+aggregate question were guesses with a name. The judge's opinion is hidden
+until the keypress because it is an opinion and would anchor the label; the
+reference is the opposite, it is what the label is measured against, so it
+shows first. Storing it on the row also gives the judge a fifth field,
+`correct`, and a decline graded against a reference is `no` by definition,
+which removes the decline mismatch that made `judge_grounded` the wrong
+column to compare with `verdict`.

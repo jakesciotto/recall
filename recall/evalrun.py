@@ -3,9 +3,12 @@
   recall eval ~/my-questions.md
 
 Numbered lines are questions. Headings, prose and bullets are not, so the
-file can carry notes about what each group of questions tests. Every
-question is logged with client = eval, which keeps a batch separable from
-the questions you ask by hand.
+file can carry notes about what each group of questions tests. An
+`expect:` line under a question is the author's reference, and it travels
+with the question into the log: the review shows it before the keypress
+and the judge grades against it. Every question is logged with
+client = eval, which keeps a batch separable from the questions you ask
+by hand.
 
 Nothing is scored here. The judge and the review do that, on the log this
 fills. See docs/evaluating.md.
@@ -18,18 +21,31 @@ import time
 from . import answer, config, db, querylog, retrieve
 
 _NUMBERED = re.compile(r"^\s*\d+\.\s+(.+?)\s*$")
+_EXPECT = re.compile(r"^\s*expect:\s*(.+?)\s*$", re.I)
+
+
+def parse(text):
+    """(question, reference) pairs in file order; reference is None when
+    no expect: line follows the question. An expect: line before any
+    question belongs to nothing and is dropped."""
+    pairs = []
+    for line in text.splitlines():
+        if m := _NUMBERED.match(line):
+            pairs.append([m.group(1), None])
+        elif (m := _EXPECT.match(line)) and pairs:
+            pairs[-1][1] = m.group(1)
+    return [tuple(p) for p in pairs]
 
 
 def questions(text):
-    return [m.group(1) for line in text.splitlines()
-            if (m := _NUMBERED.match(line))]
+    return [q for q, _ in parse(text)]
 
 
 def _ms(started):
     return int((time.monotonic() - started) * 1000)
 
 
-def ask_one(question, embedder, k=retrieve.TOP_K):
+def ask_one(question, embedder, k=retrieve.TOP_K, expected=None):
     """Ask, answer if an endpoint is set, log. Returns (answer, cited, error).
 
     A failed answer is logged with its error and the batch continues. One
@@ -50,14 +66,14 @@ def ask_one(question, embedder, k=retrieve.TOP_K):
                  source=None, dates=dates, trace=trace, hits=hits, answer=text,
                  meta=meta, model_requested=config.CHAT_MODEL,
                  prompt_chars=len(prompt), streamed=False,
-                 total_ms=_ms(started), error=error)
+                 total_ms=_ms(started), error=error, expected=expected)
     cited, _ = querylog.cited_numbers(text, len(hits))
     return text, cited, error
 
 
 def run(path, embedder, k=retrieve.TOP_K, log=print):
     """Ask every question in the file. Returns how many were asked."""
-    qs = questions(open(path, encoding="utf-8").read())
+    qs = parse(open(path, encoding="utf-8").read())
     if not qs:
         log(f"no numbered questions in {path}")
         return 0
@@ -65,9 +81,9 @@ def run(path, embedder, k=retrieve.TOP_K, log=print):
         log("no generation endpoint set; logging retrieval only. "
             "See docs/answering.md.")
     log(f"asking {len(qs)} questions from {path}\n")
-    for i, q in enumerate(qs, start=1):
+    for i, (q, expected) in enumerate(qs, start=1):
         started = time.monotonic()
-        text, cited, error = ask_one(q, embedder, k=k)
+        text, cited, error = ask_one(q, embedder, k=k, expected=expected)
         if error:
             status = f"ERROR {error[:50]}"
         elif text is None:
