@@ -9,12 +9,21 @@ the judge cannot write verdict or note, and this cannot write any judge_*
 column. Neither side may overwrite the other, or comparing them is
 circular.
 
+**The screen says what you are deciding.** With a reference, the ask is
+"does the answer state what the reference states"; without one, "is the
+answer right, as far as you know". `g` means yes and `b` means no, and the
+stored verdict is good or bad. Ten thousand characters of answer and
+sources with "g=good b=bad" under them is a guess with a name, because
+good is never defined.
+
+**Sources are an index, not a wall.** One line each, cited ones marked,
+no text. Most decisions compare the answer with the reference and never
+need the text; `e` prints the cited sources in full and asks again.
+
 **The judge's verdict stays hidden until you decide.** Showing it first
 anchors you to it, the two then agree more often than they should, and the
-measurement quietly becomes worthless. The review screen carries the
-question, the author's reference when the eval file gave one, the answer,
-and the sources, and nothing else. The judge's opinion prints after your
-keypress.
+measurement quietly becomes worthless. The judge's opinion prints after
+your keypress.
 
 **The reference shows before you decide, on purpose.** It is not an
 opinion about the answer, it is what the question's author wrote down as
@@ -31,7 +40,10 @@ VERDICTS = ("good", "bad")
 # One key each, so a pass over twenty rows costs a few minutes rather than
 # an evening. Anything else is not an action, which is what stops a stray
 # Enter from labelling a row.
-KEYS = {"g": "good", "b": "bad", "s": "skip", "q": "quit"}
+KEYS = {"g": "good", "b": "bad", "s": "skip", "q": "quit", "e": "expand"}
+
+ASK_REFERENCE = "ASK  Does the answer state what the reference states?"
+ASK_KNOWLEDGE = "ASK  Is the answer right, as far as you know?"
 
 MAX_SOURCE_CHARS = 700
 MAX_ANSWER_CHARS = 4_000
@@ -55,7 +67,7 @@ def unlabelled(conn, limit, redo=False):
     parts = ["answer IS NOT NULL"]
     if not redo:
         parts.append("verdict IS NULL")
-    return db.fetch(conn, "SELECT id, question, expected, answer, asked_at, k, "
+    return db.fetch(conn, "SELECT id, question, expected, answer, cited, asked_at, k, "
                           "verdict, note, judge_grounded, judge_retrieval, "
                           "judge_hedged, judge_question_type, judge_note "
                           f"FROM query_log WHERE {' AND '.join(parts)} "
@@ -66,32 +78,49 @@ def _clip(text, limit):
     return judge._clip((text or "").strip(), limit)
 
 
-def format_row(row, sources, label=None):
-    """The review screen. Carries no judge opinion, on purpose."""
-    label = config.USER_LABEL if label is None else label
+def _index_line(s, cited):
+    where = s.get("path") or s.get("ref")
+    day = (s.get("occurred_at") or "undated")[:10]
+    mark = "*" if s["n"] in (cited or []) else " "
+    return f"  {mark} [{s['n']}] {where}  ({day}, {s.get('source')})"
+
+
+def format_row(row, sources):
+    """The review screen: question, reference, answer, a source index,
+    then the ask. Carries no judge opinion and no source text."""
+    expected = (row.get("expected") or "").strip()
     lines = [
         "=" * 72,
         f"#{row['id']}   asked {str(row.get('asked_at'))[:19]}   k={row.get('k')}",
         "",
         f"QUESTION  {row.get('question')}",
     ]
-    if (row.get("expected") or "").strip():
-        lines += ["", f"REFERENCE {row['expected'].strip()}"]
+    if expected:
+        lines += ["", f"REFERENCE {expected}"]
     lines += [
         "",
         "ANSWER",
         _clip(row.get("answer"), MAX_ANSWER_CHARS),
         "",
-        f"SOURCES ({len(sources)})",
+        f"SOURCES ({len(sources)})  * = cited",
     ]
     if not sources:
         lines.append("  none")
-    for s in sources:
-        where = s.get("path") or s.get("ref")
-        day = (s.get("occurred_at") or "undated")[:10]
-        lines.append(f"  [{s['n']}] {where}  ({day}, {s.get('source')})")
-        lines.append(f"      {_clip(answer.speaker_labels(s.get('text'), label), MAX_SOURCE_CHARS)}")
+    lines += [_index_line(s, row.get("cited")) for s in sources]
+    lines += ["", ASK_REFERENCE if expected else ASK_KNOWLEDGE]
     return "\n".join(lines)
+
+
+def format_sources(sources, cited=None, label=None):
+    """The source texts, on request: the cited ones, or all of them when
+    the answer cited nothing. Relabelled as the answerer saw them."""
+    label = config.USER_LABEL if label is None else label
+    chosen = [s for s in sources if s["n"] in (cited or [])] or sources
+    lines = []
+    for s in chosen:
+        lines.append(_index_line(s, cited))
+        lines.append(f"      {_clip(answer.speaker_labels(s.get('text'), label), MAX_SOURCE_CHARS)}")
+    return "\n".join(lines) or "  none"
 
 
 def format_judge(row):
@@ -130,15 +159,20 @@ def run(conn, limit, redo=False, ask=input, log=print):
     if not rows:
         log("nothing to label")
         return 0
-    log(f"{len(rows)} to review. g=good  b=bad  s=skip  q=quit\n")
+    log(f"{len(rows)} to review. Answer the ASK line: g=yes  b=no  s=skip  "
+        "q=quit  e=expand sources\n")
     labelled = 0
     for row in rows:
-        log(format_row(row, judge.sources_for(conn, row["id"])))
-        action = None
-        while action is None:
-            action = parse_action(ask("\n  [g/b/s/q] "))
+        sources = judge.sources_for(conn, row["id"])
+        log(format_row(row, sources))
+        while True:
+            action = parse_action(ask("\n  [g/b/s/q/e] "))
             if action is None:
-                log("  press g, b, s, or q")
+                log("  press g, b, s, q, or e")
+            elif action == "expand":
+                log(format_sources(sources, row.get("cited")))
+            else:
+                break
         if action == "quit":
             break
         # The judge's opinion appears only now, after the decision is made.

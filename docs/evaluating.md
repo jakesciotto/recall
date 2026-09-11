@@ -78,11 +78,23 @@ recall review --limit 5
 recall review --redo         # revisit rows you already labelled
 ```
 
-You read the question, the answer, and the sources, and press one key:
-`g` good, `b` bad, `s` skip, `q` quit. Anything else is not an action, which
-is what stops a stray Enter from labelling a row. Rows come newest first,
-because recall decays: an old row invites a guess, and a guessed label is
-worse than a missing one.
+The screen carries the question, the reference when the eval file gave
+one, the answer, a one-line index of the sources with the cited ones
+marked, and then the ask. With a reference the ask is "does the answer
+state what the reference states"; without one, "is the answer right, as
+far as you know". You press one key: `g` yes, `b` no, `s` skip, `q` quit,
+`e` to print the cited sources in full and ask again. Anything else is
+not an action, which is what stops a stray Enter from labelling a row.
+The stored verdict is `good` for yes and `bad` for no.
+
+The ask is on the screen because it was not, and that was the first
+thing a labeller said: with ten thousand characters of answer and sources
+and "g=good b=bad" under them, it was hard to tell what the ask was. The
+source text is off the screen for the same reason. Most decisions compare
+the answer with the reference and never need it.
+
+Rows come newest first, because recall decays: an old row invites a
+guess, and a guessed label is worse than a missing one.
 
 **The judge's opinion stays hidden until after your keypress.** Showing it
 first anchors you to it, the two then agree more often than they should,
