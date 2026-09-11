@@ -429,6 +429,13 @@ aggregate question were guesses with a name. The judge's opinion is hidden
 until the keypress because it is an opinion and would anchor the label; the
 reference is the opposite, it is what the label is measured against, so it
 shows first. Storing it on the row also gives the judge a fifth field,
-`correct`, and a decline graded against a reference is `no` by definition,
-which removes the decline mismatch that made `judge_grounded` the wrong
-column to compare with `verdict`.
+`correct`. A decline graded against a reference that names an answer
+should be `no`, and the first run showed the model does not apply that
+unless told: 11 of 40 labelled declines came back `correct=yes` because
+the answer "correctly identifies" a gap in the sources. Say it in the
+rule, then measure again: the same 23 of 40 with the sentence in place, so
+this judge model ignores it. A code rule on a decline regex was simulated
+before adoption and traded 11 wrong passes for 9 wrong fails, because the
+regex also matches a partial answer that gives the fact. Do not write "by
+definition" about a model, and simulate a rule over the labelled rows
+before it ships.

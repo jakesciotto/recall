@@ -157,9 +157,23 @@ inconsistent there: on one decline it wrote retrieval `yes` and hedged
 `no`, which its own definition of hedged forbids.
 
 Where a reference exists, compare `judge_correct` against `verdict` instead.
-A decline against a reference is `no` by definition, because the answer
-misses what the reference names, so the decline problem above does not
-arise there.
+A decline against a reference that names an answer should be `no`, because
+the answer misses what the reference names. The model did not apply that
+on its own: on the first run with references, 11 of 40 labelled rows were
+declines graded `correct=yes` because the answer "correctly identifies"
+a gap in the sources. So the rule text now says it: grade the claim
+against the reference, not the sources, and a decline is `no` unless the
+reference itself says nothing exists. Measured again with that sentence:
+the same 23 of 40 and the same 17 rows. The judge model ignored it. A code
+rule was simulated instead, decline means `no` unless the reference starts
+with `nothing`, and it was not adopted: it fixes the 11 and breaks 9,
+because a decline phrase also appears inside partial answers that give
+the fact, and a reference written as "no such email" does not start with
+`nothing`. The same run also showed the other
+direction: on five rows the judge read the reference and caught an error
+the human label had missed, such as the answer naming the user as the
+sender who filled their own inbox. A label made without the reference is
+not the truth either.
 
 ```sql
 -- Rows with a reference: the judge's correctness call against the human.

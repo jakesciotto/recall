@@ -69,10 +69,13 @@ summary asks for a synthesis, open is anything broader.{correct_rule}"""
 # reference that is not there invites the model to invent one.
 CORRECT_FIELD = '\n "correct": "yes|partly|no",'
 CORRECT_RULE = """
-correct: does the answer agree with the reference? The reference is what
-the question's author expects: an answer, or the source the answer should
-come from. yes when the answer matches it, partly when it matches in part,
-no when the answer contradicts it or misses it."""
+correct: compare the answer's claim with the reference, and not with the sources.
+The reference is what the question's author expects: an answer, or the
+source the answer should come from. yes when the answer states what
+the reference states, partly when it states part of it, no when it states
+something else. An answer that says the sources hold nothing is a claim of
+nothing: grade it no unless the reference itself says nothing exists, and
+then grade it yes."""
 
 _TRUNCATED = " ...[truncated]"
 

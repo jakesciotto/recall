@@ -294,3 +294,21 @@ class TestReference(unittest.TestCase):
         with mock.patch.object(db, "fetch", return_value=[]) as fetch:
             judge.unjudged(Conn(), 5)
         self.assertIn("expected", fetch.call_args.args[1])
+
+
+class TestCorrectGradesTheReferenceNotTheSources(unittest.TestCase):
+    """First run over 40 labelled rows: 11 declines came back correct=yes
+    because the answer "correctly identifies" a gap in the sources. The
+    reference is the yardstick, not the sources, and a decline is a claim
+    of nothing: no unless the reference itself says nothing exists.
+
+    Measured after the wording: the same 23 of 40 and the same 17 rows.
+    A 26B judge ignored the sentence. The test pins the wording so the
+    next model is asked the same thing; it does not claim the wording
+    works. A code rule on is_decline was simulated and not adopted: it
+    trades the 11 for 9 good partial answers the regex also matches."""
+
+    def test_the_rule_names_the_decline_case(self):
+        prompt = judge.build_prompt(dict(ROW, expected="x"), SOURCES)
+        self.assertIn("not with the sources", prompt)
+        self.assertIn("unless the reference itself says nothing exists", prompt)
