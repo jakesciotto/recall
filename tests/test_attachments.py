@@ -251,3 +251,65 @@ class TestTheEarliestMessageWins(unittest.TestCase):
             [c] = attachment_chunks(root, work)
         self.assertEqual(c.occurred_at, "2021-05-03T00:00:00Z")
         self.assertIn("first time", c.text)
+
+
+class TestOrphans(unittest.TestCase):
+    """An image no attachment row names: the message is gone, the file
+    stayed. It indexes undated rather than not at all."""
+
+    HEIC = b"\x00\x00\x00\x18ftypheic"
+
+    def test_media_declares_an_orphan_and_skips_a_live_photo_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT, {
+                **FILES,
+                "cd/G2/IMG_1.heic": self.HEIC,
+                "cd/G2/at_0_X.pvt/IMG_1.jpeg": b"\xff\xd8\xff",
+                "cd/G2/at_0_X.pvt/metadata.plist": b"bplist00"})
+            files = IMessage().media(root / "chat.db")
+            rel = sorted(str(f.relative_to(root / "Attachments"))
+                         for f in files)
+        self.assertEqual(rel, ["ab/G1/p.jpg", "cd/G2/IMG_1.heic"])
+
+    def test_a_captioned_orphan_is_one_undated_chunk_without_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT, {**FILES, "cd/G2/IMG_1.heic": self.HEIC})
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a dog")
+            sha = captioned(work, root / "Attachments/cd/G2/IMG_1.heic",
+                            caption="a red bicycle by a fence",
+                            ocr_text="x" * 30, ocr_chars=30)
+            chunks = attachment_chunks(root, work)
+        self.assertEqual(len(chunks), 2)
+        [c] = [c for c in chunks if c.ref == f"attachment:{sha}"]
+        self.assertEqual(c.text, "[undated, attachment with no message]\n"
+                                 "Image: a red bicycle by a fence\n"
+                                 "Text in image: " + "x" * 30)
+        self.assertIsNone(c.occurred_at)
+        self.assertEqual(c.date_confidence, "low")
+        self.assertEqual(c.participants, [])
+        self.assertIsNone(c.thread)
+        self.assertEqual(c.source, "messages")
+
+    def test_an_orphan_with_a_linked_twin_yields_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT,
+                          {**FILES, "cd/G2/copy.jpg": FILES["ab/G1/p.jpg"]})
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a dog")
+            captions.HashCache(work).get(root / "Attachments/cd/G2/copy.jpg")
+            chunks = attachment_chunks(root, work)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].date_confidence, "exact")
+
+    def test_an_orphan_chunk_fits_the_budget(self):
+        for budget in (120, 500, 3000):
+            with self.subTest(budget=budget), \
+                 tempfile.TemporaryDirectory() as tmp:
+                root = export(tmp, [], [], {"cd/G2/IMG_1.heic": self.HEIC})
+                work = root / "work"
+                captioned(work, root / "Attachments/cd/G2/IMG_1.heic",
+                          caption="a cat", ocr_text="y" * 5000, ocr_chars=5000)
+                [c] = attachment_chunks(root, work, budget=budget)
+                self.assertLessEqual(len(c.text), budget)
+                self.assertIn("Text in image: ", c.text)

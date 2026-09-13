@@ -439,3 +439,16 @@ before adoption and traded 11 wrong passes for 9 wrong fails, because the
 regex also matches a partial answer that gives the fact. Do not write "by
 definition" about a model, and simulate a rule over the labelled rows
 before it ships.
+
+**A parity gap is a count, not a category.** The Messages index stood 395
+chunks short of the private one it replaced, and the gap carried one label
+for months: "images with no attachment-table row". Measured, the export
+holds 20,454 files the attachment table does not name. 13,246 are videos.
+3,805 are images, and 3,344 of those sit inside `.pvt` directories: Live
+Photo bundles whose still repeats the HEIC the table names beside them,
+so captioning them would index every Live Photo twice. The 461 left are
+attachments of deleted messages, 36 of them group chat avatars. One
+label covered three populations with three right answers: skip, skip, and
+index undated. The rule that shipped is one line, and it took a scan of
+the tree against the table to know which line. Measure what a gap is made
+of before designing for it, and the design gets smaller.

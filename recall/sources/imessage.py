@@ -48,6 +48,27 @@ def local_path(filename, root):
     return root / filename[len(ATTACHMENT_PREFIX):]
 
 
+def _cached(hashes, file, seen):
+    """(sha, record) for a captioned file the cache knows and this run has
+    not yielded yet. The sha is marked seen before the record is read, so
+    a second file with the same bytes never yields twice."""
+    from .. import captions, config
+    sha = hashes.known(file)
+    if sha is None or sha in seen:
+        return None
+    seen.add(sha)
+    rec = captions.read_record(config.WORK_DIR, sha)
+    if not rec or rec.get("skipped") or not rec.get("caption"):
+        return None
+    return sha, rec
+
+
+def _ocr_line(rec):
+    from .. import captions
+    ocr = rec.get("ocr_text") or ""
+    return f"Text in image: {ocr}" if len(ocr) >= captions.OCR_MIN_CHARS else ""
+
+
 def context_window(rows, ats, at, contacts, span_s=CONTEXT_SPAN_S,
                    turns=CONTEXT_TURNS):
     """Up to `turns` texted lines either side of `at`, within `span_s`, in
@@ -147,8 +168,21 @@ class IMessage(Source):
         out.sort(key=lambda pm: (pm[1]["at"], pm[1]["rowid"]))
         return out
 
+    def _orphans(self, path, linked):
+        """Files under Attachments/ that no attachment row names: the
+        message was deleted and the file stayed. A `.pvt` directory is a
+        Live Photo bundle whose still repeats the HEIC beside it, so its
+        contents are skipped."""
+        root = path.parent / "Attachments"
+        return sorted(
+            p for p in walk(root)
+            if p not in linked
+            and not any(part.endswith(".pvt")
+                        for part in p.relative_to(root).parts))
+
     def media(self, path):
-        return sorted({p for p, _ in self._attachments(path)})
+        linked = {p for p, _ in self._attachments(path)}
+        return sorted(linked) + self._orphans(path, linked)
 
     def samples(self, path):
         rows, _ = self._rows(path)
@@ -178,14 +212,13 @@ class IMessage(Source):
                    for t, rs in by_thread.items()}
         hashes = captions.HashCache(config.WORK_DIR)
         seen = set()
-        for file, msg in self._attachments(path):
-            sha = hashes.known(file)
-            if sha is None or sha in seen:
+        floor = len("Said around it: ") + captions.OCR_MIN_CHARS
+        linked = self._attachments(path)
+        for file, msg in linked:
+            hit = _cached(hashes, file, seen)
+            if hit is None:
                 continue
-            seen.add(sha)
-            rec = captions.read_record(config.WORK_DIR, sha)
-            if not rec or rec.get("skipped") or not rec.get("caption"):
-                continue
+            sha, rec = hit
             thread = msg["thread"]
             who = sorted(handles.get(thread, set())
                          | ({msg["handle"]} if msg["handle"] else set()))
@@ -198,16 +231,23 @@ class IMessage(Source):
             around = context_window(by_thread.get(thread, []),
                                     ats.get(thread, []), msg["at"], contacts)
             text = "\n".join(lines[:2])
-            ocr = rec.get("ocr_text") or ""
-            extra = [f"Text in image: {ocr}"
-                     if len(ocr) >= captions.OCR_MIN_CHARS else "",
+            extra = [_ocr_line(rec),
                      f"Said around it: {around}" if around else ""]
-            floor = len("Said around it: ") + captions.OCR_MIN_CHARS
             for line in fit(budget - len(text), extra, floor):
                 text += "\n" + line
             yield Chunk(ref=f"attachment:{sha}", text=text, source=self.name,
                         occurred_at=when, date_confidence="exact",
                         participants=who, thread=thread)
+        for file in self._orphans(path, {p for p, _ in linked}):
+            hit = _cached(hashes, file, seen)
+            if hit is None:
+                continue
+            sha, rec = hit
+            text = ("[undated, attachment with no message]\n"
+                    f"Image: {rec['caption']}")
+            for line in fit(budget - len(text), [_ocr_line(rec)], floor):
+                text += "\n" + line
+            yield Chunk(ref=f"attachment:{sha}", text=text, source=self.name)
 
     def _windows(self, rows, names, contacts, budget):
         from ..chunking import parts, sessions
