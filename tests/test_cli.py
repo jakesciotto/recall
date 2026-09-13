@@ -71,3 +71,29 @@ class TestCaptionLogFlushes(unittest.TestCase):
             cli.main(["caption"])
             captured["log"]("one line")
         self.assertGreaterEqual(Out.flushes, 1)
+
+
+class TestIngestLogFlushes(unittest.TestCase):
+    """Same trap one command over: a detached ingest redirected to a file
+    showed an empty log for its first minutes."""
+
+    def test_each_log_line_reaches_the_file_at_once(self):
+        from recall import db, ingest
+        captured = {}
+
+        def run(root, conn, reindex=True, log=print):
+            captured["log"] = log
+            return {}
+
+        class Out(io.StringIO):
+            flushes = 0
+
+            def flush(self):
+                Out.flushes += 1
+        with mock.patch.object(ingest, "run", run), \
+             mock.patch.object(db, "connect",
+                               lambda: contextlib.nullcontext(None)), \
+             contextlib.redirect_stdout(Out()):
+            cli.main(["ingest"])
+            captured["log"]("one line")
+        self.assertGreaterEqual(Out.flushes, 1)

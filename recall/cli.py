@@ -195,7 +195,8 @@ def cmd_ingest(args):
     from . import db, ingest
     root = pathlib.Path(args.data or config.DATA_DIR)
     with db.connect() as conn:
-        summary = ingest.run(root, conn, reindex=not args.no_index)
+        summary = ingest.run(root, conn, reindex=not args.no_index,
+                             log=lambda line: print(line, flush=True))
     print(json.dumps(summary, indent=2))
     return 0
 
