@@ -15,7 +15,8 @@ T = 1620000000   # 2021-05-03T00:00:00Z
 
 def make_chatdb(path, messages, attachments=(), names=()):
     """messages: (rowid, chat_guid, handle, unix_ts, is_from_me, text).
-    attachments: (filename, message_rowid). names: (chat_guid, display)."""
+    attachments: (filename, message_rowid) or (filename, None, unix_created)
+    for a row whose message is gone. names: (chat_guid, display)."""
     con = sqlite3.connect(path)
     con.executescript("""
     CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, guid TEXT, display_name TEXT);
@@ -23,7 +24,8 @@ def make_chatdb(path, messages, attachments=(), names=()):
     CREATE TABLE message (ROWID INTEGER PRIMARY KEY, handle_id INTEGER,
         date INTEGER, is_from_me INTEGER, text TEXT, attributedBody BLOB);
     CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
-    CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY, filename TEXT);
+    CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY, filename TEXT,
+        created_date INTEGER);
     CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);
     """)
     chats, handles = {}, {}
@@ -44,10 +46,13 @@ def make_chatdb(path, messages, attachments=(), names=()):
                     (rowid, hid, (ts - APPLE) * 1_000_000_000, int(mine), text))
         con.execute("INSERT INTO chat_message_join VALUES (?, ?)",
                     (chats[guid], rowid))
-    for i, (filename, message_rowid) in enumerate(attachments, start=1):
-        con.execute("INSERT INTO attachment VALUES (?, ?)", (i, filename))
-        con.execute("INSERT INTO message_attachment_join VALUES (?, ?)",
-                    (message_rowid, i))
+    for i, (filename, message_rowid, *created) in enumerate(attachments,
+                                                            start=1):
+        con.execute("INSERT INTO attachment VALUES (?, ?, ?)",
+                    (i, filename, created[0] - APPLE if created else None))
+        if message_rowid is not None:
+            con.execute("INSERT INTO message_attachment_join VALUES (?, ?)",
+                        (message_rowid, i))
     con.commit()
     con.close()
 
@@ -313,3 +318,60 @@ class TestOrphans(unittest.TestCase):
                 [c] = attachment_chunks(root, work, budget=budget)
                 self.assertLessEqual(len(c.text), budget)
                 self.assertIn("Text in image: ", c.text)
+
+    def test_an_orphan_row_without_a_message_dates_by_its_creation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT + [(PREFIX + "cd/G2/IMG_1.heic", None, T)],
+                          {**FILES, "cd/G2/IMG_1.heic": self.HEIC})
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a dog")
+            sha = captioned(work, root / "Attachments/cd/G2/IMG_1.heic",
+                            caption="a red bicycle by a fence")
+            chunks = attachment_chunks(root, work)
+        [c] = [c for c in chunks if c.ref == f"attachment:{sha}"]
+        self.assertEqual(c.text, "[2021-05-03, attachment with no message]\n"
+                                 "Image: a red bicycle by a fence")
+        self.assertEqual(c.occurred_at, "2021-05-03T00:00:00Z")
+        self.assertEqual(c.date_confidence, "metadata")
+        self.assertEqual(c.participants, [])
+        self.assertIsNone(c.thread)
+
+    def test_a_chat_photo_links_to_its_chat_by_directory_name(self):
+        guid = "iMessage;+;chat42"
+        msgs = MSGS + [(9, guid, "+15550002222", T + 100, False, "hey all")]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, msgs, ATT,
+                          {**FILES, f"ab/{guid}/GroupPhotoImage": b"\x89PNG"},
+                          names=[(guid, "Beach Crew")])
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a dog")
+            sha = captioned(work, root / f"Attachments/ab/{guid}/GroupPhotoImage",
+                            caption="three people on a pier")
+            chunks = attachment_chunks(
+                root, work, contacts={"+15550002222": "Grace Hopper"})
+        [c] = [c for c in chunks if c.ref == f"attachment:{sha}"]
+        self.assertEqual(c.text, '[undated, chat photo of "Beach Crew" with '
+                                 'Grace Hopper]\nImage: three people on a pier')
+        self.assertIsNone(c.occurred_at)
+        self.assertEqual(c.date_confidence, "low")
+        self.assertEqual(c.participants, ["+15550002222"])
+        self.assertEqual(c.thread, guid)
+
+    def test_an_old_attachment_table_without_created_date_still_yields(self):
+        if sqlite3.sqlite_version_info < (3, 35):
+            self.skipTest("DROP COLUMN needs SQLite 3.35")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, MSGS, ATT, {**FILES, "cd/G2/IMG_1.heic": self.HEIC})
+            con = sqlite3.connect(root / "chat.db")
+            con.execute("ALTER TABLE attachment DROP COLUMN created_date")
+            con.commit()
+            con.close()
+            work = root / "work"
+            captioned(work, root / "Attachments/ab/G1/p.jpg", caption="a dog")
+            sha = captioned(work, root / "Attachments/cd/G2/IMG_1.heic",
+                            caption="a red bicycle by a fence")
+            chunks = attachment_chunks(root, work)
+        [c] = [c for c in chunks if c.ref == f"attachment:{sha}"]
+        self.assertIsNone(c.occurred_at)
+        self.assertTrue(c.text.startswith("[undated, attachment with no message]"))
+

@@ -130,10 +130,14 @@ the data directory (a symlink works). The adapter reads the attachment
 table, links each file to its message, and dates the image by that
 message. Images are recognised by their first bytes: a large share carry
 a `.pluginPayloadAttachment` extension and are ordinary photos. Videos
-are not captioned. An image that no attachment row names is an orphan:
-the message was deleted and the file stayed. It indexes undated, with no
-participants and no context. Files inside a `.pvt` directory are skipped;
-that is a Live Photo bundle, and the table names the HEIC beside it.
+are not captioned. An image that no message names is an orphan: the
+message was deleted and the file stayed. It indexes with no context. If
+its attachment row survived, the row's creation time dates it, with
+`date_confidence` set to `metadata`; otherwise it is undated. A file in a
+directory named by a chat guid is that chat's photo, so the chunk names
+the chat and its participants. Files inside a `.pvt` directory are
+skipped; that is a Live Photo bundle, and the table names the HEIC
+beside it.
 
 Twitter/X: the archive ships its media beside the export, in
 `tweets_media` and the two `direct_messages*_media` folders. The adapter

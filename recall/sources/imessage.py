@@ -39,6 +39,18 @@ LEFT JOIN chat c ON c.ROWID = cmj.chat_id
 WHERE a.filename IS NOT NULL
 """
 
+_UNJOINED_SQL = """
+SELECT a.filename, a.created_date
+FROM attachment a
+LEFT JOIN message_attachment_join j ON j.attachment_id = a.ROWID
+WHERE a.filename IS NOT NULL AND j.message_id IS NULL
+"""
+
+
+def _iso(unix):
+    return dt.datetime.fromtimestamp(
+        unix, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
 
 def local_path(filename, root):
     """The on-disk file for an attachment row. chat.db records the Mac's
@@ -180,6 +192,27 @@ class IMessage(Source):
             and not any(part.endswith(".pvt")
                         for part in p.relative_to(root).parts))
 
+    def _orphan_facts(self, path):
+        """Every chat guid, and the creation time of each attachment row
+        that has no message: a deleted message leaves its row behind. An
+        export old enough to lack `created_date` dates nothing."""
+        root = path.parent / "Attachments"
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            chats = {guid for (guid,) in con.execute("SELECT guid FROM chat")}
+            created = {}
+            try:
+                rows = con.execute(_UNJOINED_SQL).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+            for filename, date in rows:
+                p = local_path(filename, root)
+                if p is not None and date:
+                    created[p] = _unix(date)
+        finally:
+            con.close()
+        return chats, created
+
     def media(self, path):
         linked = {p for p, _ in self._attachments(path)}
         return sorted(linked) + self._orphans(path, linked)
@@ -222,8 +255,7 @@ class IMessage(Source):
             thread = msg["thread"]
             who = sorted(handles.get(thread, set())
                          | ({msg["handle"]} if msg["handle"] else set()))
-            when = dt.datetime.fromtimestamp(
-                msg["at"], dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            when = _iso(msg["at"])
             name = names.get(thread)
             group = f'"{name}" with ' if name else "with "
             lines = [f"[{when[:10]}, {group}{header(who, contacts)}]",
@@ -238,16 +270,29 @@ class IMessage(Source):
             yield Chunk(ref=f"attachment:{sha}", text=text, source=self.name,
                         occurred_at=when, date_confidence="exact",
                         participants=who, thread=thread)
+        chats, created = self._orphan_facts(path)
         for file in self._orphans(path, {p for p, _ in linked}):
             hit = _cached(hashes, file, seen)
             if hit is None:
                 continue
             sha, rec = hit
-            text = ("[undated, attachment with no message]\n"
+            when = _iso(created[file]) if file in created else None
+            thread = file.parent.name if file.parent.name in chats else None
+            who = sorted(handles.get(thread, set())) if thread else []
+            if thread:
+                name = names.get(thread)
+                kind = (f'chat photo of "{name}" with ' if name
+                        else "chat photo with") + header(who, contacts)
+            else:
+                kind = "attachment with no message"
+            text = (f"[{when[:10] if when else 'undated'}, {kind}]\n"
                     f"Image: {rec['caption']}")
             for line in fit(budget - len(text), [_ocr_line(rec)], floor):
                 text += "\n" + line
-            yield Chunk(ref=f"attachment:{sha}", text=text, source=self.name)
+            yield Chunk(ref=f"attachment:{sha}", text=text, source=self.name,
+                        occurred_at=when,
+                        date_confidence="metadata" if when else "low",
+                        participants=who, thread=thread)
 
     def _windows(self, rows, names, contacts, budget):
         from ..chunking import parts, sessions
