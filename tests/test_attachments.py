@@ -375,3 +375,24 @@ class TestOrphans(unittest.TestCase):
         self.assertIsNone(c.occurred_at)
         self.assertTrue(c.text.startswith("[undated, attachment with no message]"))
 
+
+
+class TestRows(unittest.TestCase):
+    """A message joined to two chats is one event. Yielded once per chat,
+    it made two windows share one ref, and every ingest rewrote one of
+    them while the other never reached the index."""
+
+    def test_a_message_in_two_chats_is_one_row_in_the_first_chat_by_guid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = export(tmp, [(1, "b-chat", "+15550001111", T, False, "hello")],
+                          [], {})
+            con = sqlite3.connect(root / "chat.db")
+            con.execute("INSERT INTO chat VALUES (2, 'a-chat', NULL)")
+            con.execute("INSERT INTO chat_message_join VALUES (2, 1)")
+            con.commit()
+            con.close()
+            rows, _ = IMessage()._rows(root / "chat.db")
+            refs = [c.ref for c in IMessage().chunks(root / "chat.db", 8000)]
+        self.assertEqual([(r["rowid"], r["thread"]) for r in rows],
+                         [(1, "a-chat")])
+        self.assertEqual(len(refs), len(set(refs)))

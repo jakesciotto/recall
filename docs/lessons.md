@@ -452,3 +452,20 @@ label covered three populations with three right answers: skip, skip, and
 index undated. The rule that shipped is one line, and it took a scan of
 the tree against the table to know which line. Measure what a gap is made
 of before designing for it, and the design gets smaller.
+
+**A rewrite count that never reaches zero is a ref collision, not churn.**
+An ingest over unchanged inputs rewrote 21 chunks where the replay had
+predicted 20. The odd one was a text window whose fresh output equalled
+its stored text, whose digest agreed on both sides, and which four
+processes under different hash seeds produced identically. Nothing about
+it was unstable. The adapter simply yielded it twice: one message row of
+672,307 sat in two chats through `chat_message_join`, so two windows in
+two threads started at the same rowid and shared one ref. Each run wrote
+both, the last write won, and the next run found the other one changed.
+One chunk rewrote on every ingest and one window never reached the index,
+and the digest skip reported the flip as ordinary rewriting. A message is
+one event: it now keeps the first chat by guid, and the other chat's
+window re-keys to its next message. Two rules. Count refs per run, not
+only texts: a duplicate ref is silent everywhere else. And chase a
+rewrite count that does not match the prediction, even by one; the
+difference is the finding.

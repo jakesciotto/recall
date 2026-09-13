@@ -128,7 +128,8 @@ recaption.
 Apple Messages: copy `~/Library/Messages/Attachments` beside `chat.db` in
 the data directory (a symlink works). The adapter reads the attachment
 table, links each file to its message, and dates the image by that
-message. Images are recognised by their first bytes: a large share carry
+message. A message joined to two chats indexes once, in the first
+chat by guid. Images are recognised by their first bytes: a large share carry
 a `.pluginPayloadAttachment` extension and are ordinary photos. Videos
 are not captioned. An image that no message names is an orphan: the
 message was deleted and the file stayed. It indexes with no context. If

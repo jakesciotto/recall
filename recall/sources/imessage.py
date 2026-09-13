@@ -154,7 +154,14 @@ class IMessage(Source):
                     "text": body.strip(),
                 })
             out.sort(key=lambda r: (r["thread"], r["at"], r["rowid"]))
-            return out, names
+            # A message joined to two chats is one event: it keeps the
+            # first chat by guid, or two windows would share one ref.
+            seen, once = set(), []
+            for r in out:
+                if r["rowid"] not in seen:
+                    seen.add(r["rowid"])
+                    once.append(r)
+            return once, names
         finally:
             con.close()
 
