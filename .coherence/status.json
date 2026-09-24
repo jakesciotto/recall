@@ -1,0 +1,365 @@
+{
+  "version": 1,
+  "verify": {
+    "at": "2026-09-24T17:00:29.410Z",
+    "commit": "0599aa7",
+    "dirty": true,
+    "tier": "full",
+    "scope": null,
+    "cost": {
+      "totalMs": 5323.5571679999985,
+      "claims": [
+        {
+          "node": "recall",
+          "claim": "passes test \"TestTheCutIsReal\"",
+          "ms": 410.46620899999994,
+          "source": "wall"
+        },
+        {
+          "node": "Source adapters",
+          "claim": "passes test \"TestMboxRefsAreUnique\"",
+          "ms": 220.737666,
+          "source": "wall"
+        },
+        {
+          "node": "Source adapters",
+          "claim": "passes test \"TestMboxTakesTextPartsOnly\"",
+          "ms": 208.57570900000064,
+          "source": "wall"
+        },
+        {
+          "node": "Source adapters",
+          "claim": "passes test \"TestMboxFilter\"",
+          "ms": 204.4491250000001,
+          "source": "wall"
+        },
+        {
+          "node": "Core pipeline",
+          "claim": "boundary \"the question is never interpolated into SQL\" at where_clause via test \"test_the_question_is_never_interpolated\"",
+          "ms": 201.36691699999983,
+          "source": "wall"
+        }
+      ]
+    },
+    "lastFullAt": "2026-09-24T17:00:29.410Z",
+    "claims": [
+      {
+        "node": "recall",
+        "claim": "pyproject.toml exists at root",
+        "kind": "pass",
+        "detail": "pyproject.toml @ root",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "recall",
+        "claim": "docker-compose.yml exists at root",
+        "kind": "pass",
+        "detail": "docker-compose.yml @ root",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "recall",
+        "claim": "passes test \"TestTheCutIsReal\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "recall",
+        "claim": "passes test \"TestEveryModuleImports\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"no hits forbids an answer\" at build_prompt via test \"test_no_hits_forbids_an_answer\"",
+        "kind": "pass",
+        "detail": "no hits forbids an answer @ build_prompt",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"a restarted server loses nothing\" at embed_safe via test \"test_a_restarted_server_loses_nothing\"",
+        "kind": "pass",
+        "detail": "a restarted server loses nothing @ embed_safe",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"a dead server stops the run\" at embed_safe via test \"test_a_dead_server_stops_the_run_instead_of_dropping_everything\"",
+        "kind": "pass",
+        "detail": "a dead server stops the run @ embed_safe",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"a re-ingest writes only what changed\" at changed via test \"test_an_unchanged_chunk_is_skipped\"",
+        "kind": "pass",
+        "detail": "a re-ingest writes only what changed @ changed",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"the question is never interpolated into SQL\" at where_clause via test \"test_the_question_is_never_interpolated\"",
+        "kind": "pass",
+        "detail": "the question is never interpolated into SQL @ where_clause",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"a ref in both arms outranks a ref in one\" at rrf via test \"test_a_ref_in_both_lists_beats_a_ref_in_one\"",
+        "kind": "pass",
+        "detail": "a ref in both arms outranks a ref in one @ rrf",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"a logger that raises never costs the answer\" at handle_ask via test \"test_a_logger_that_raises_never_costs_the_answer\"",
+        "kind": "pass",
+        "detail": "a logger that raises never costs the answer @ handle_ask",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"rows never carry NUL\" at clean via test \"test_nul_is_stripped_from_every_text_column\"",
+        "kind": "pass",
+        "detail": "rows never carry NUL @ clean",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "boundary \"the chunk budget takes the worst measured ratio\" at calibrate via test \"test_it_takes_the_worst_ratio_not_the_average\"",
+        "kind": "pass",
+        "detail": "the chunk budget takes the worst measured ratio @ calibrate",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_it_checks_health_before_bisecting\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_a_genuinely_oversized_item_is_isolated_and_dropped\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_a_wrong_dimension_is_a_setup_fault\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_every_item_appears_exactly_once_and_in_order\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_it_demands_attribution\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_a_number_past_the_prompt_is_invalid_not_dropped\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_a_failure_rolls_back_so_the_connection_stays_usable\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_the_second_run_writes_nothing\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_a_vcard_dropped_in_later_renames_the_stored_chunk\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Core pipeline",
+        "claim": "passes test \"test_nothing_is_lost\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 1
+      },
+      {
+        "node": "Source adapters",
+        "claim": "base.py exists at this node",
+        "kind": "pass",
+        "detail": "base.py @ this node",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Source adapters",
+        "claim": "passes test \"TestDetection\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Source adapters",
+        "claim": "passes test \"TestRegistration\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Source adapters",
+        "claim": "passes test \"TestMboxRefsAreUnique\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Source adapters",
+        "claim": "passes test \"TestMboxTakesTextPartsOnly\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      },
+      {
+        "node": "Source adapters",
+        "claim": "passes test \"TestMboxFilter\"",
+        "kind": "pass",
+        "at": "2026-09-24T17:00:29.410Z",
+        "commit": "0599aa7",
+        "tier": "full",
+        "everFailed": false,
+        "runs": 3
+      }
+    ],
+    "coverage": {
+      "components": 3,
+      "claimed": 3,
+      "withWhy": 3,
+      "symbols": 1394,
+      "documented": 407
+    },
+    "invariants": {
+      "total": 9,
+      "anchored": 9,
+      "gaps": []
+    },
+    "narrative": null,
+    "jobs": 987,
+    "failures": 0
+  }
+}

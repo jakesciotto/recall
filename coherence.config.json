@@ -1,0 +1,12 @@
+{
+  "language": "python",
+  "codeExt": ["py"],
+  "outputDir": ".coherence/out",
+  "testDir": "tests/",
+  "test": [".venv/bin/python", "-m", "pytest", "-q", "-k"],
+  "testMatch": "[1-9]\\d* passed",
+  "oracleExecution": "serial",
+  "oracleDomain": false,
+  "staticOracleExistence": false,
+  "ignore": ["node_modules", ".git", ".venv", "__pycache__", ".pytest_cache", ".coherence", "data", "work", "docs"]
+}
