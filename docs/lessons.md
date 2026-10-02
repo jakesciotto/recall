@@ -65,6 +65,22 @@ only the report was wrong, which is the worst place to be wrong, because
 the report is what gets read. Accumulate per key. Same shape in `doctor`,
 which listed the name twenty-five times as if they were twenty-five sources.
 
+**A green test is not evidence that the guard exists.** The suite was green
+at 594 and nine invariants were anchored to named tests. Breaking each guard
+in turn and watching the named test go red proved seven of them. Two stayed
+green with their guard gone. The restart test counted the items a flaky
+server kept, and a bisecting retry keeps all eight as well, so deleting the
+same-batch retry changed nothing the test measured; it now asserts the call
+sizes. The NUL test asserted five named columns, so dropping the strip from
+`source` or `date_confidence` passed; it now puts a NUL in every string field
+and reads the whole row. The recipe is the same each time: break the guard,
+run the named test, restore the file, record what the run said. A test that
+nobody has seen red has not been shown to test anything. One wrong experiment
+on the way: a regex that removed a `try/except` left an indentation error, so
+pytest failed at collection. A collection error proves nothing about the
+test. A refutation needs the named test to fail on its own assertion. The
+record lives under `## refutations` in `recall/package.spec.md`.
+
 ## Sizing
 
 **A character budget is a guess about tokens, and the guess is wrong.** The

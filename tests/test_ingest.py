@@ -184,16 +184,22 @@ class TestRowsNeverCarryNul(unittest.TestCase):
 
     def test_nul_is_stripped_from_every_text_column(self):
         """ref included. The second real NUL arrived in a Message-ID
-        header, which the mbox adapter turns into the ref."""
+        header, which the mbox adapter turns into the ref. Every string
+        field carries one here and the last assertion reads the whole row,
+        so a column the strip forgets fails without being named."""
         chunk = base.Chunk(ref="email:<a\x00b>", text="before\x00after",
-                           source="email", thread="t\x00", path="p\x00.eml",
-                           participants=["a\x00@x"])
-        ref, text, source, _, _, participants, thread, path, _ = ingest._row(chunk)
+                           source="em\x00ail", occurred_at="2020\x00-01-01",
+                           date_confidence="sta\x00ted", thread="t\x00",
+                           path="p\x00.eml", participants=["a\x00@x"])
+        row = ingest._row(chunk)
+        ref, text, source, _, _, participants, thread, path, _ = row
         self.assertEqual(ref, "email:<ab>")
         self.assertEqual(text, "beforeafter")
         self.assertEqual(thread, "t")
         self.assertEqual(path, "p.eml")
         self.assertEqual(participants, ["a@x"])
+        flat = [v for col in row for v in (col if isinstance(col, list) else [col])]
+        self.assertEqual([v for v in flat if isinstance(v, str) and "\x00" in v], [])
 
     def test_a_dict_chunk_is_stripped_the_same_way(self):
         row = ingest._row({"ref": "x", "text": "a\x00b", "source": "s"})

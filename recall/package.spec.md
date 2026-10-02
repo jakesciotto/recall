@@ -33,6 +33,17 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
 - passes test "test_a_vcard_dropped_in_later_renames_the_stored_chunk"
 - passes test "test_nothing_is_lost"
 
+## refutations
+- no hits forbids an answer: build_prompt guard set to `if False` -> RED, "FAILED tests/test_answer.py::TestBuildPrompt::test_no_hits_forbids_an_answer | 1 failed"
+- a restarted server loses nothing: deleted the same-batch retry in embed_safe -> GREEN first (the test counted items, and bisection also keeps 8 of 8); test now asserts call sizes [8, 8] -> RED, "FAILED tests/test_embed.py::TestEmbedSafe::test_a_restarted_server_loses_nothing | 1 failed"
+- a dead server stops the run: deleted the `if not ready(): raise EmbeddingServerDown` guard in embed_safe -> RED, "FAILED tests/test_embed.py::TestEmbedSafe::test_a_dead_server_stops_the_run_instead_of_dropping_everything | 1 failed" (test_it_checks_health_before_bisecting also red)
+- a re-ingest writes only what changed: `changed` set to `if True:` so every chunk is pending -> RED, "FAILED tests/test_ingest.py::TestChanged::test_an_unchanged_chunk_is_skipped | 1 failed". Skipping by ref alone (`elif False:`) leaves the named test green, which is the other direction of the same rule; three siblings in TestChanged go red, test_a_rewritten_chunk_reloads first.
+- the question is never interpolated into SQL: where_clause wrote `source = '{source}'` as an f-string with no bound parameter -> RED, "FAILED tests/test_retrieve.py::TestWhereClause::test_the_question_is_never_interpolated | 1 failed"
+- a ref in both arms outranks a ref in one: rrf took `max` of the two scores instead of the sum -> RED, "FAILED tests/test_retrieve.py::TestRRF::test_a_ref_in_both_lists_beats_a_ref_in_one | 1 failed"
+- a logger that raises never costs the answer: deleted the try/except around `querylog.log` in `_log`, the helper handle_ask calls -> RED, "FAILED tests/test_serve.py::TestHandleAsk::test_a_logger_that_raises_never_costs_the_answer | 1 failed"
+- rows never carry NUL: `clean` returned its input unchanged -> RED, "FAILED tests/test_ingest.py::TestRowsNeverCarryNul::test_nul_is_stripped_from_every_text_column | 1 failed". Dropping `clean` from one column of `_row` (source, then date_confidence) stayed GREEN: the test asserted five named columns. It now puts a NUL in every string field and reads the whole row; both breaks -> RED, "1 failed".
+- the chunk budget takes the worst measured ratio: measure_density returned the average instead of the minimum -> RED, "FAILED tests/test_chunking.py::TestCalibrate::test_it_takes_the_worst_ratio_not_the_average | 1 failed"
+
 ## why
 "No hits forbids an answer" is the product. The prompt builder refuses to ask
 the model anything when retrieval returned nothing, because a model asked to

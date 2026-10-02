@@ -16,3 +16,5 @@ __pycache__/
 # coherence (node dev dependency and derived artifacts)
 node_modules/
 .coherence/out/
+.coherence/activity/
+.coherence/read-traces/

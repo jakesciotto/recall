@@ -29,17 +29,20 @@ class TestEmbedSafe(unittest.TestCase):
         m.assert_called_once()
 
     def test_a_restarted_server_loses_nothing(self):
-        calls = {"n": 0}
+        """Bisecting after one 502 also keeps all eight, so the count alone
+        cannot tell a retry from a split. The call sizes can."""
+        sizes = []
 
         def flaky(texts, timeout=300):
-            calls["n"] += 1
-            if calls["n"] == 1:
+            sizes.append(len(texts))
+            if len(sizes) == 1:
                 raise http502()
             return [[0.0]] * len(texts)
 
         with mock.patch.object(embed, "embed", flaky):
             kept, _ = embed.embed_safe(items(8), _ready=lambda: True)
         self.assertEqual(len(kept), 8, "a restart must not drop anything")
+        self.assertEqual(sizes, [8, 8], "a restart retries the same batch")
 
     def test_it_checks_health_before_bisecting(self):
         ready = mock.Mock(return_value=True)
