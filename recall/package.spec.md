@@ -11,6 +11,7 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
 - a logger that raises never costs the answer
 - rows never carry NUL
 - the chunk budget takes the worst measured ratio
+- a whole decline is graded by the reference, not by the model
 
 ## works when
 - boundary "no hits forbids an answer" at build_prompt via test "test_no_hits_forbids_an_answer"
@@ -22,6 +23,7 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
 - boundary "a logger that raises never costs the answer" at handle_ask via test "test_a_logger_that_raises_never_costs_the_answer"
 - boundary "rows never carry NUL" at clean via test "test_nul_is_stripped_from_every_text_column"
 - boundary "the chunk budget takes the worst measured ratio" at calibrate via test "test_it_takes_the_worst_ratio_not_the_average"
+- boundary "a whole decline is graded by the reference, not by the model" at grade_decline via test "test_a_whole_decline_against_a_named_answer_is_no"
 - passes test "test_it_checks_health_before_bisecting"
 - passes test "test_a_genuinely_oversized_item_is_isolated_and_dropped"
 - passes test "test_a_wrong_dimension_is_a_setup_fault"
@@ -43,6 +45,7 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
 - a logger that raises never costs the answer: deleted the try/except around `querylog.log` in `_log`, the helper handle_ask calls -> RED, "FAILED tests/test_serve.py::TestHandleAsk::test_a_logger_that_raises_never_costs_the_answer | 1 failed"
 - rows never carry NUL: `clean` returned its input unchanged -> RED, "FAILED tests/test_ingest.py::TestRowsNeverCarryNul::test_nul_is_stripped_from_every_text_column | 1 failed". Dropping `clean` from one column of `_row` (source, then date_confidence) stayed GREEN: the test asserted five named columns. It now puts a NUL in every string field and reads the whole row; both breaks -> RED, "1 failed".
 - the chunk budget takes the worst measured ratio: measure_density returned the average instead of the minimum -> RED, "FAILED tests/test_chunking.py::TestCalibrate::test_it_takes_the_worst_ratio_not_the_average | 1 failed"
+- a whole decline is graded by the reference, not by the model: grade_decline returned its input unchanged -> RED, "FAILED tests/test_judge.py::TestADeclineIsGradedByCode::test_a_whole_decline_against_a_named_answer_is_no | 1 failed"
 
 ## why
 "No hits forbids an answer" is the product. The prompt builder refuses to ask
@@ -76,6 +79,15 @@ trace never raises into the request path.
 "Rows never carry NUL". Postgres text columns reject NUL, and one export carried
 it. The cleaner strips every text column before the digest sees it, so the
 digest and the stored row agree.
+
+"A whole decline is graded by the reference, not by the model". Eleven of
+forty labelled rows were whole declines graded correct because the answer
+"correctly identifies" a gap in the sources, and the rule as a prompt
+sentence changed none of them. The model reports one fact, whether the answer declined the
+whole question; the eval author states the other, whether a decline is the
+correct answer, as a marker under the reference; and code grades a whole
+decline from the two. A part decline keeps the model's grade, so partial
+answers that give the fact are never marked wrong by a pattern.
 
 "The chunk budget takes the worst measured ratio". Text runs from 1.4 to 4.4
 characters per token depending on the source. A budget derived from the average

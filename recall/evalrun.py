@@ -6,9 +6,11 @@ Numbered lines are questions. Headings, prose and bullets are not, so the
 file can carry notes about what each group of questions tests. An
 `expect:` line under a question is the author's reference, and it travels
 with the question into the log: the review shows it before the keypress
-and the judge grades against it. Every question is logged with
-client = eval, which keeps a batch separable from the questions you ask
-by hand.
+and the judge grades against it. A `decline: yes` line under the reference
+says a whole decline is the correct answer, which the author knows once
+per question and a model could not read from the reference text. Every
+question is logged with client = eval, which keeps a batch separable from
+the questions you ask by hand.
 
 Nothing is scored here. The judge and the review do that, on the log this
 fills. See docs/evaluating.md.
@@ -22,30 +24,39 @@ from . import answer, config, db, querylog, retrieve
 
 _NUMBERED = re.compile(r"^\s*\d+\.\s+(.+?)\s*$")
 _EXPECT = re.compile(r"^\s*expect:\s*(.+?)\s*$", re.I)
+_DECLINE = re.compile(r"^\s*decline:\s*(\S+)\s*$", re.I)
 
 
 def parse(text):
-    """(question, reference) pairs in file order; reference is None when
-    no expect: line follows the question. An expect: line before any
-    question belongs to nothing and is dropped."""
-    pairs = []
+    """(question, reference, decline) triples in file order.
+
+    reference is None when no expect: line follows the question. decline
+    is "yes" when a decline: yes line follows, "no" when a reference exists
+    without one, and None when there is neither. An expect: or decline:
+    line before any question belongs to nothing and is dropped.
+    """
+    rows = []
     for line in text.splitlines():
         if m := _NUMBERED.match(line):
-            pairs.append([m.group(1), None])
-        elif (m := _EXPECT.match(line)) and pairs:
-            pairs[-1][1] = m.group(1)
-    return [tuple(p) for p in pairs]
+            rows.append([m.group(1), None, None])
+        elif (m := _EXPECT.match(line)) and rows:
+            rows[-1][1] = m.group(1)
+            rows[-1][2] = rows[-1][2] or "no"
+        elif (m := _DECLINE.match(line)) and rows:
+            rows[-1][2] = "yes" if m.group(1).lower() == "yes" else "no"
+    return [tuple(r) for r in rows]
 
 
 def questions(text):
-    return [q for q, _ in parse(text)]
+    return [q for q, _, _ in parse(text)]
 
 
 def _ms(started):
     return int((time.monotonic() - started) * 1000)
 
 
-def ask_one(question, embedder, k=retrieve.TOP_K, expected=None):
+def ask_one(question, embedder, k=retrieve.TOP_K, expected=None,
+            expected_decline=None):
     """Ask, answer if an endpoint is set, log. Returns (answer, cited, error).
 
     A failed answer is logged with its error and the batch continues. One
@@ -66,7 +77,8 @@ def ask_one(question, embedder, k=retrieve.TOP_K, expected=None):
                  source=None, dates=dates, trace=trace, hits=hits, answer=text,
                  meta=meta, model_requested=config.CHAT_MODEL,
                  prompt_chars=len(prompt), streamed=False,
-                 total_ms=_ms(started), error=error, expected=expected)
+                 total_ms=_ms(started), error=error, expected=expected,
+                 expected_decline=expected_decline)
     cited, _ = querylog.cited_numbers(text, len(hits))
     return text, cited, error
 
@@ -81,9 +93,10 @@ def run(path, embedder, k=retrieve.TOP_K, log=print):
         log("no generation endpoint set; logging retrieval only. "
             "See docs/answering.md.")
     log(f"asking {len(qs)} questions from {path}\n")
-    for i, (q, expected) in enumerate(qs, start=1):
+    for i, (q, expected, decline) in enumerate(qs, start=1):
         started = time.monotonic()
-        text, cited, error = ask_one(q, embedder, k=k, expected=expected)
+        text, cited, error = ask_one(q, embedder, k=k, expected=expected,
+                                     expected_decline=decline)
         if error:
             status = f"ERROR {error[:50]}"
         elif text is None:

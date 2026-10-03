@@ -32,6 +32,16 @@ one for every question whose answer is a count over the archive. You cannot
 label "whom did I text most" from memory, and a `GROUP BY` over the index
 can tell you before you ask.
 
+When the correct answer is a decline, say so under the reference. The
+marker travels as `expected_decline`, the review prints it beside the
+reference, and the judge grades a whole decline from it.
+
+```markdown
+29. What was on my calendar on 2011-06-15?
+    expect: nothing; the calendar begins 2012-02-01
+    decline: yes
+```
+
 ## The judge
 
 ```bash
@@ -47,7 +57,10 @@ while holding the evidence, and what kind of question was it. When the
 question carries a reference, it writes a fifth, `judge_correct`: does the
 answer agree with the reference. A row without a reference gets NULL there,
 not `unknown`. NULL says there was nothing to grade against; `unknown` says
-the model could not tell. The sources
+the model could not tell. The model also reports one reading, not a grade:
+`judge_declined` says whether the answer declined the whole question, part
+of it, or neither. Code grades a whole decline from that reading and the
+eval file's `decline:` marker, see below. The sources
 keep the numbers the answer cited, because a citation indexes the prompt,
 and renumbering them makes every grounding judgment wrong.
 
@@ -186,6 +199,29 @@ direction: on five rows the judge read the reference and caught an error
 the human label had missed, such as the answer naming the user as the
 sender who filled their own inbox. A label made without the reference is
 not the truth either.
+
+**So the model reports, the author states, and code grades.** The judge
+is good at reading what an answer did and bad at applying a rule to it, so
+the rule left the prompt. The model fills `declined` (whole, part, no) by
+reading the answer. Whether a decline is the correct answer is a fact about
+the question, so the eval file states it once, as a `decline: yes` line
+under the reference, and it reaches the row as `expected_decline`. The
+model was asked to read that from the reference text first, and it read 3
+of 4 references that said "nothing" as naming an answer, and one text two
+ways. `grade_decline` then sets `judge_correct` on a whole decline only:
+yes when the author expects a decline, no otherwise. A part decline keeps
+the model's own grade, which is what protects the partial answers the
+regex broke. A row with no marker, or a reading outside the set, keeps the
+model's grade too. Rows judged before this change carry NULL in
+`judge_declined` until a `--redo`; the marker itself backfills from the
+file by question text.
+
+Measured on the same 40 labelled rows with the model reading the reference:
+25 before, 24 after, because it broke 10 good declines. Three pairs of rows
+ask one question in both eval rounds, carry one reference and one decline
+shape, and hold opposite labels, so no rule over the answer and the
+reference can pass 37 of 40 until the labels agree on what a good decline
+is.
 
 ```sql
 -- Rows with a reference: the judge's correctness call against the human.

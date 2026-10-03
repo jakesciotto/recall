@@ -28,7 +28,7 @@ COLUMNS = (
     "fused_n", "model_requested", "model_resolved", "answer", "cited",
     "cited_invalid", "prompt_chars", "prompt_tokens", "completion_tokens",
     "embed_ms", "dense_ms", "sparse_ms", "generate_ms", "first_token_ms",
-    "total_ms", "error", "expected",
+    "total_ms", "error", "expected", "expected_decline",
 )
 
 CANDIDATE_COLUMNS = (
@@ -115,7 +115,7 @@ def candidates_from(trace, hits, cited_valid):
 def log_query(conn, *, client, question, k, pool, source, dates, trace, hits,
               answer, meta, model_requested, prompt_chars=None,
               streamed=False, total_ms=None, first_token_ms=None, error=None,
-              expected=None):
+              expected=None, expected_decline=None):
     """Assemble one query decision row and write it. Never raises.
 
     Safety covers assembly as well as the write. A row that cannot be built
@@ -156,6 +156,7 @@ def log_query(conn, *, client, question, k, pool, source, dates, trace, hits,
             "total_ms": total_ms,
             "error": error,
             "expected": expected,
+            "expected_decline": expected_decline,
         }
         candidates = candidates_from(trace, hits, valid)
     except Exception:

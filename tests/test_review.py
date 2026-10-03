@@ -135,6 +135,20 @@ class TestReference(unittest.TestCase):
     def test_a_row_without_a_reference_has_no_reference_line(self):
         self.assertNotIn("REFERENCE", review.format_row(ROW, SOURCES))
 
+    def test_a_decline_marker_shows_beside_the_reference(self):
+        """The label and the judge grade the same question only when the
+        human sees what the author expects: an answer, or a decline."""
+        screen = review.format_row(dict(ROW, expected="nothing; zero tweets match",
+                                        expected_decline="yes"), SOURCES)
+        self.assertIn("REFERENCE (a decline is the correct answer)", screen)
+        plain = review.format_row(dict(ROW, expected="x", expected_decline="no"), SOURCES)
+        self.assertNotIn("decline is the correct answer", plain)
+
+    def test_the_queue_carries_the_marker(self):
+        with mock.patch.object(db, "fetch", return_value=[]) as fetch:
+            review.unlabelled(Conn(), 5)
+        self.assertIn("expected_decline", fetch.call_args.args[1])
+
     def test_the_queue_carries_the_reference(self):
         with mock.patch.object(db, "fetch", return_value=[]) as fetch:
             review.unlabelled(Conn(), 5)

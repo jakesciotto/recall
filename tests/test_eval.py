@@ -127,15 +127,51 @@ class TestExpectations(unittest.TestCase):
 
     def test_an_expect_line_attaches_to_the_question_above_it(self):
         self.assertEqual(evalrun.parse(FILE_WITH_EXPECT), [
-            ("Whom did I text most in 2021?", "messages; the same person as in 2019"),
-            ("What did I tweet on 2019-01-01?", "twitter, one day chunk"),
-            ("What did I never write about?", None),
+            ("Whom did I text most in 2021?", "messages; the same person as in 2019", "no"),
+            ("What did I tweet on 2019-01-01?", "twitter, one day chunk", "no"),
+            ("What did I never write about?", None, None),
         ])
 
     def test_an_expect_line_before_any_question_is_ignored(self):
-        self.assertEqual(evalrun.parse("expect: nothing\n1. q\n"), [("q", None)])
+        self.assertEqual(evalrun.parse("expect: nothing\n1. q\n"), [("q", None, None)])
 
     def test_the_expectation_is_logged_with_its_question(self):
         _, logged, _ = run_eval(FILE_WITH_EXPECT)
         self.assertEqual(logged[0]["expected"], "messages; the same person as in 2019")
+        self.assertEqual(logged[0]["expected_decline"], "no")
         self.assertIsNone(logged[2]["expected"])
+        self.assertIsNone(logged[2]["expected_decline"])
+
+
+class TestDeclineMarker(unittest.TestCase):
+    """A `decline: yes` line under a reference says a whole decline is the
+    correct answer. The author knows this once per question; a model asked
+    to read it from the reference text got it wrong on 3 of 4 references
+    that said "nothing". So the author writes it, and it travels with the
+    reference into the log for the judge to grade by."""
+
+    FILE = """1. What did I tweet about quantum computing?
+   expect: nothing; zero tweets match
+   decline: yes
+2. Whom did I text most in 2021?
+   expect: messages; the same person as in 2019
+3. Did I ever message that person?
+   expect: no text messages; the name appears in mail only
+   decline: YES
+"""
+
+    def test_the_marker_attaches_to_the_question_above_it(self):
+        self.assertEqual([d for _, _, d in evalrun.parse(self.FILE)], ["yes", "no", "yes"])
+
+    def test_a_reference_without_a_marker_expects_an_answer(self):
+        self.assertEqual(evalrun.parse("1. q\n   expect: an answer\n")[0][2], "no")
+
+    def test_a_marker_without_a_reference_is_kept_for_the_record(self):
+        self.assertEqual(evalrun.parse("1. q\n   decline: yes\n"), [("q", None, "yes")])
+
+    def test_a_strange_marker_value_is_not_a_yes(self):
+        self.assertEqual(evalrun.parse("1. q\n   expect: x\n   decline: maybe\n")[0][2], "no")
+
+    def test_the_marker_is_logged_with_its_question(self):
+        _, logged, _ = run_eval(self.FILE)
+        self.assertEqual([r["expected_decline"] for r in logged], ["yes", "no", "yes"])

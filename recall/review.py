@@ -67,7 +67,8 @@ def unlabelled(conn, limit, redo=False):
     parts = ["answer IS NOT NULL"]
     if not redo:
         parts.append("verdict IS NULL")
-    return db.fetch(conn, "SELECT id, question, expected, answer, cited, asked_at, k, "
+    return db.fetch(conn, "SELECT id, question, expected, expected_decline, "
+                          "answer, cited, asked_at, k, "
                           "verdict, note, judge_grounded, judge_retrieval, "
                           "judge_hedged, judge_question_type, judge_note "
                           f"FROM query_log WHERE {' AND '.join(parts)} "
@@ -96,7 +97,9 @@ def format_row(row, sources):
         f"QUESTION  {row.get('question')}",
     ]
     if expected:
-        lines += ["", f"REFERENCE {expected}"]
+        mark = (" (a decline is the correct answer)"
+                if row.get("expected_decline") == "yes" else "")
+        lines += ["", f"REFERENCE{mark} {expected}"]
     lines += [
         "",
         "ANSWER",

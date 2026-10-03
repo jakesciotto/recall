@@ -103,6 +103,12 @@ ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_note text;
 -- answer against it as judge_correct, and NULL there means no reference.
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS expected text;
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_correct text;
+-- The eval file's decline: marker, the author saying a whole decline is
+-- the correct answer. The judge reads the answer as judge_declined (whole,
+-- part, no), and code grades a whole decline from the two, so the grade is
+-- recomputable from the row.
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS expected_decline text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_declined text;
 CREATE INDEX IF NOT EXISTS query_log_unjudged_idx
   ON query_log (id) WHERE judged_at IS NULL;
 """

@@ -36,10 +36,12 @@ MAX_NOTE_CHARS = 500
 TRI = ("yes", "partly", "no")
 BOOLISH = ("yes", "no")
 QUESTION_TYPES = ("recall", "date", "summary", "open")
+DECLINED = ("whole", "part", "no")
 
 # The judge writes only these.
 FIELDS = ("judge_grounded", "judge_retrieval", "judge_hedged",
-          "judge_question_type", "judge_correct", "judge_note", "judge_model")
+          "judge_question_type", "judge_declined", "judge_correct",
+          "judge_note", "judge_model")
 
 INSTRUCTIONS = """You grade an answer that a retrieval system produced from a
 personal archive. Judge only what the sources support. Do not use outside
@@ -50,7 +52,8 @@ Reply with JSON and nothing else:
 {"grounded": "yes|partly|no",
  "retrieval": "yes|partly|no",
  "hedged": "yes|no",
- "question_type": "recall|date|summary|open",{correct_field}
+ "question_type": "recall|date|summary|open",
+ "declined": "whole|part|no",{correct_field}
  "note": "one sentence"}
 
 grounded: does every claim in the answer trace to a source it cited, AND
@@ -63,7 +66,10 @@ failure, not a style problem.
 retrieval: did the sources contain what the question needed?
 hedged: did the answer decline or hedge although the sources held the answer?
 question_type: recall is a fact from the archive, date is a when question,
-summary asks for a synthesis, open is anything broader.{correct_rule}"""
+summary asks for a synthesis, open is anything broader.
+declined: whole when the answer says the sources hold nothing and gives no
+part of an answer, part when it answers some of the question and declines
+the rest, no when it does not decline.{correct_rule}"""
 
 # Only when the row carries a reference. Asking for a grade against a
 # reference that is not there invites the model to invent one.
@@ -73,9 +79,13 @@ correct: compare the answer's claim with the reference, and not with the sources
 The reference is what the question's author expects: an answer, or the
 source the answer should come from. yes when the answer states what
 the reference states, partly when it states part of it, no when it states
-something else. An answer that says the sources hold nothing is a claim of
-nothing: grade it no unless the reference itself says nothing exists, and
-then grade it yes."""
+something else."""
+
+# The decline rule lives in code, see grade_decline. The prompt does not
+# carry it, because a 26B judge ignored it there; and the model is not
+# asked whether the reference expects a decline, because it read 3 of 4
+# references that said "nothing" as naming an answer. The eval author
+# states that once per question, as the decline: marker.
 
 _TRUNCATED = " ...[truncated]"
 
@@ -181,23 +191,43 @@ def _one_of(value, allowed):
     return text if text in allowed else "unknown"
 
 
-def parse_verdict(text, expected=False):
+def grade_decline(fields, expected_decline):
+    """The decline rule, in code: a whole decline is correct exactly when
+    the author expects a decline.
+
+    Eleven of forty labelled rows were whole declines graded correct=yes
+    because the answer "correctly identifies" a gap in the sources, and the
+    rule as a prompt sentence changed none of them. A regex on the answer
+    text broke nine partial answers instead. So the model reports one fact,
+    whether the answer declined, the eval file's decline: marker states the
+    other, and this function grades them. A part decline keeps the model's
+    grade. A row with no marker, or a reading outside the set, keeps the
+    model's grade too, because the rule needs both.
+    """
+    if fields["judge_correct"] is None or fields["judge_declined"] != "whole":
+        return fields
+    if expected_decline in BOOLISH:
+        fields["judge_correct"] = expected_decline
+    return fields
+
+
+def parse_verdict(text, expected=False, expected_decline=None):
     """A model reply as the judge columns. Never raises.
 
     judge_correct is NULL unless the row carried a reference: NULL says
     "nothing to grade against", where 'unknown' says "could not tell".
     """
     data = _json_object(text)
-    return {
+    return grade_decline({
         "judge_grounded": _one_of(data.get("grounded"), TRI),
         "judge_retrieval": _one_of(data.get("retrieval"), TRI),
         "judge_hedged": _one_of(data.get("hedged"), BOOLISH),
         "judge_question_type": _one_of(data.get("question_type"),
                                        QUESTION_TYPES),
+        "judge_declined": _one_of(data.get("declined"), DECLINED),
         "judge_correct": _one_of(data.get("correct"), TRI) if expected else None,
         "judge_note": _clip(str(data.get("note") or ""), MAX_NOTE_CHARS),
-    }
-
+    }, expected_decline)
 
 def judge_model():
     return config.JUDGE_MODEL or config.CHAT_MODEL
@@ -222,17 +252,18 @@ def judge_row(row, sources, chat=None, model=None):
     model = model or judge_model()
     text = row.get("answer") or ""
     expected = bool((row.get("expected") or "").strip())
+    decline = row.get("expected_decline")
     if not render._CITE.search(text) and not is_decline(text):
-        out = parse_verdict(None, expected=expected)
+        out = parse_verdict(None, expected=expected, expected_decline=decline)
         out["judge_grounded"] = "no"
         out["judge_note"] = "cites no source and does not decline"
         out["judge_model"] = "rule"
         return out
     try:
         out = parse_verdict(chat(build_prompt(row, sources), model=model),
-                            expected=expected)
+                            expected=expected, expected_decline=decline)
     except Exception as e:
-        out = parse_verdict(None, expected=expected)
+        out = parse_verdict(None, expected=expected, expected_decline=decline)
         out["judge_note"] = f"{type(e).__name__}: {e}"[:MAX_NOTE_CHARS]
     out["judge_model"] = model
     return out
@@ -258,7 +289,8 @@ def unjudged(conn, limit, redo=False):
     parts = ["answer IS NOT NULL"]
     if not redo:
         parts.append("judged_at IS NULL")
-    return db.fetch(conn, "SELECT id, question, expected, answer, k, date_phrase "
+    return db.fetch(conn, "SELECT id, question, expected, expected_decline, "
+                          "answer, k, date_phrase "
                           f"FROM query_log WHERE {' AND '.join(parts)} "
                           f"ORDER BY id LIMIT {int(limit)}")
 
@@ -297,6 +329,7 @@ def run(conn, limit, redo=False, dry_run=False, chat=None, model=None,
         correct = verdict.get("judge_correct")
         log(f"  {stamp}  #{row['id']:<5} grounded={verdict['judge_grounded']:<7}"
             f" retrieval={verdict['judge_retrieval']:<7}"
+            f" declined={verdict['judge_declined']:<7}"
             + (f" correct={correct:<7}" if correct else "")
             + f" type={verdict['judge_question_type']:<8}"
             f" {str(row['question'])[:44]}")

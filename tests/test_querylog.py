@@ -230,6 +230,7 @@ class TestReferenceColumn(unittest.TestCase):
 
     def test_the_schema_carries_both_columns(self):
         self.assertIn("ADD COLUMN IF NOT EXISTS expected text", db.LOG_SCHEMA)
+        self.assertIn("ADD COLUMN IF NOT EXISTS expected_decline text", db.LOG_SCHEMA)
         self.assertIn("ADD COLUMN IF NOT EXISTS judge_correct text", db.LOG_SCHEMA)
 
     def test_an_expectation_lands_in_the_row(self):

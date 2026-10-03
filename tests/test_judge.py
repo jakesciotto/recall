@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest import mock
 
@@ -296,19 +297,81 @@ class TestReference(unittest.TestCase):
         self.assertIn("expected", fetch.call_args.args[1])
 
 
-class TestCorrectGradesTheReferenceNotTheSources(unittest.TestCase):
+class TestADeclineIsGradedByCode(unittest.TestCase):
     """First run over 40 labelled rows: 11 declines came back correct=yes
-    because the answer "correctly identifies" a gap in the sources. The
-    reference is the yardstick, not the sources, and a decline is a claim
-    of nothing: no unless the reference itself says nothing exists.
+    because the answer "correctly identifies" a gap in the sources. Adding
+    the rule to the prompt changed nothing: the same 23 of 40, the same 17
+    rows. A regex rule on the answer text traded the 11 for 9 partial
+    answers that give the fact and decline the rest. Asking the model to
+    read the reference for absence failed on 3 of 4 references that said
+    "nothing", and read one text two ways.
 
-    Measured after the wording: the same 23 of 40 and the same 17 rows.
-    A 26B judge ignored the sentence. The test pins the wording so the
-    next model is asked the same thing; it does not claim the wording
-    works. A code rule on is_decline was simulated and not adopted: it
-    trades the 11 for 9 good partial answers the regex also matches."""
+    So the model reports one fact and the author states the other. The
+    model fills `declined` by reading the answer: whole, part, or no. The
+    eval file's `decline:` marker says whether a whole decline is the
+    correct answer, and it reaches the row as `expected_decline`. Code
+    grades a whole decline from the marker. A part decline keeps the
+    model's own grade, which is what the regex could not do."""
 
-    def test_the_rule_names_the_decline_case(self):
-        prompt = judge.build_prompt(dict(ROW, expected="x"), SOURCES)
-        self.assertIn("not with the sources", prompt)
-        self.assertIn("unless the reference itself says nothing exists", prompt)
+    def reply(self, **fields):
+        data = {"grounded": "yes", "retrieval": "yes", "hedged": "no",
+                "question_type": "recall", "correct": "yes", "note": "n"}
+        data.update(fields)
+        return json.dumps(data)
+
+    def test_the_prompt_asks_for_declined_and_never_for_the_reference_reading(self):
+        for row in (dict(ROW, expected="x"), ROW):
+            prompt = judge.build_prompt(row, SOURCES)
+            self.assertIn('"declined"', prompt)
+            self.assertNotIn("reference_absent", prompt)
+            self.assertNotIn("unless the reference itself says nothing exists", prompt)
+
+    def test_a_whole_decline_against_a_named_answer_is_no(self):
+        out = judge.parse_verdict(self.reply(correct="yes", declined="whole"),
+                                  expected=True, expected_decline="no")
+        self.assertEqual(out["judge_correct"], "no")
+
+    def test_a_whole_decline_where_a_decline_is_expected_is_yes(self):
+        out = judge.parse_verdict(self.reply(correct="no", declined="whole"),
+                                  expected=True, expected_decline="yes")
+        self.assertEqual(out["judge_correct"], "yes")
+
+    def test_a_part_decline_keeps_the_model_grade(self):
+        out = judge.parse_verdict(self.reply(correct="partly", declined="part"),
+                                  expected=True, expected_decline="no")
+        self.assertEqual(out["judge_correct"], "partly")
+
+    def test_a_whole_decline_overrides_a_grade_the_model_could_not_give(self):
+        out = judge.parse_verdict(self.reply(correct="maybe", declined="whole"),
+                                  expected=True, expected_decline="no")
+        self.assertEqual(out["judge_correct"], "no")
+
+    def test_no_marker_or_a_strange_reading_never_overrides(self):
+        """The rule needs both facts. A row without a marker, or a model
+        word outside the set, keeps the model's grade."""
+        out = judge.parse_verdict(self.reply(correct="yes", declined="whole"),
+                                  expected=True, expected_decline=None)
+        self.assertEqual(out["judge_correct"], "yes")
+        out = judge.parse_verdict(self.reply(correct="yes", declined="sort of"),
+                                  expected=True, expected_decline="no")
+        self.assertEqual(out["judge_correct"], "yes")
+
+    def test_the_reading_is_stored_and_the_marker_is_never_written_by_the_judge(self):
+        out = judge.parse_verdict(self.reply(declined="whole"), expected=True,
+                                  expected_decline="no")
+        self.assertEqual(out["judge_declined"], "whole")
+        self.assertIn("judge_declined", judge.FIELDS)
+        self.assertNotIn("expected_decline", judge.FIELDS)
+        self.assertNotIn("judge_reference_absent", db.LOG_SCHEMA)
+
+    def test_judge_row_grades_from_the_row_marker(self):
+        reply = self.reply(correct="yes", declined="whole")
+        row = dict(ROW, answer="The sources do not contain that.", expected="x",
+                   expected_decline="no")
+        out = judge.judge_row(row, SOURCES, chat=lambda p, model=None: reply, model="m")
+        self.assertEqual(out["judge_correct"], "no")
+
+    def test_the_queue_carries_the_marker(self):
+        with mock.patch.object(db, "fetch", return_value=[]) as fetch:
+            judge.unjudged(Conn(), 5)
+        self.assertIn("expected_decline", fetch.call_args.args[1])
