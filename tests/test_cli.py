@@ -73,6 +73,37 @@ class TestCaptionLogFlushes(unittest.TestCase):
         self.assertGreaterEqual(Out.flushes, 1)
 
 
+class TestJudgeLogFlushes(unittest.TestCase):
+    """Third command, same trap: a detached judge redo over 65 rows showed
+    an empty log until it exited."""
+
+    def test_each_log_line_reaches_the_file_at_once(self):
+        from recall import db, judge
+        captured = {}
+
+        def run(conn, limit, redo=False, dry_run=False, chat=None, model=None,
+                log=print):
+            captured["log"] = log
+            return {}
+
+        @contextlib.contextmanager
+        def connect():
+            yield object()
+
+        class Out(io.StringIO):
+            flushes = 0
+
+            def flush(self):
+                Out.flushes += 1
+        with mock.patch.object(judge, "run", run), \
+             mock.patch.object(db, "connect", connect), \
+             mock.patch.object(db, "apply_schema", lambda conn: None), \
+             contextlib.redirect_stdout(Out()):
+            cli.main(["judge"])
+            captured["log"]("one line")
+        self.assertGreaterEqual(Out.flushes, 1)
+
+
 class TestIngestLogFlushes(unittest.TestCase):
     """Same trap one command over: a detached ingest redirected to a file
     showed an empty log for its first minutes."""

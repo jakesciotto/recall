@@ -283,7 +283,8 @@ def cmd_judge(args):
     from . import db, judge
     with db.connect() as conn:
         db.apply_schema(conn)
-        judge.run(conn, limit=args.limit, redo=args.redo, dry_run=args.dry_run)
+        judge.run(conn, limit=args.limit, redo=args.redo, dry_run=args.dry_run,
+                  log=lambda line: print(line, flush=True))
     return 0
 
 
