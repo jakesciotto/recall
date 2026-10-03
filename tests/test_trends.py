@@ -59,8 +59,43 @@ class TestServiceHeuristic(unittest.TestCase):
                 self.assertTrue(trends.looks_like_service(addr))
 
     def test_a_person(self):
-        self.assertFalse(trends.looks_like_service("ada@example.org"))
-        self.assertFalse(trends.looks_like_service("Ada Lovelace"))
+        for addr in ("ada@example.org", "Ada Lovelace", "ann-marie@isp.example",
+                     "ada.byron@example.org", "byron007@example.org",
+                     "scott_byron@publisher.example", "greg@lacrosseclub.example",
+                     "kmc0044@university.example"):
+            with self.subTest(addr=addr):
+                self.assertFalse(trends.looks_like_service(addr))
+
+    def test_service_words_inside_a_separated_local_part(self):
+        """The real rollups labelled a shop's tracking and order-update
+        mailboxes a person for nine years running: the list matched whole
+        local parts only, and these carry the service word after a hyphen."""
+        for addr in ("shipment-tracking@shop.example", "order-update@shop.example",
+                     "do_not_reply@music.example", "customer.service@bank.example",
+                     "security-alert@accounts.example"):
+            with self.subTest(addr=addr):
+                self.assertTrue(trends.looks_like_service(addr))
+
+    def test_a_run_on_do_not_reply_without_separators(self):
+        for addr in ("pleasedonotreply@school.example", "noreplyplease@x.example",
+                     "autoconfirm@shop.example"):
+            with self.subTest(addr=addr):
+                self.assertTrue(trends.looks_like_service(addr))
+
+    def test_a_brand_mailbox_at_its_own_domain(self):
+        """brand@official.brand.example is the brand writing, not a person
+        named brand."""
+        self.assertTrue(trends.looks_like_service("brand@official.brand.example"))
+        self.assertTrue(trends.looks_like_service("brand@brand.example"))
+
+    def test_a_mail_domain_that_is_not_a_mail_provider(self):
+        """Second-level label only. A university's tigermail.university.edu
+        is a person's mailbox, and the first version read it as a service."""
+        self.assertTrue(trends.looks_like_service("a1b2c@socialmail.example"))
+        self.assertFalse(trends.looks_like_service("ada@gmail.com"))
+        self.assertFalse(trends.looks_like_service("ada@hotmail.com"))
+        self.assertFalse(trends.looks_like_service("ada@fastmail.com"))
+        self.assertFalse(trends.looks_like_service("kmc0044@tigermail.university.example"))
 
 
 class TestChunk(unittest.TestCase):

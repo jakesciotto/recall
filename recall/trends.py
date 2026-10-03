@@ -26,12 +26,29 @@ WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
 TOP = 5
 
 # Addresses that are almost never a person. A heuristic, and named as one in
-# the rollup text.
-_SERVICE = re.compile(
-    r"^(no-?reply|donotreply|notifications?|auto-?confirm|newsletters?|news|"
-    r"info|support|alerts?|updates?|billing|orders?|hello|team|marketing|"
-    r"mailer|bounce|digest|help|noreply\+.*)@|@(t|e|em|mail|email|news|"
-    r"info|reply|mailer)\.", re.I)
+# the rollup text. Four readings of one address, any one of them enough:
+# a service word as a token of the local part (shipment-tracking,
+# do_not_reply, customer.service); a no-reply run with the separators
+# removed (pleasedonotreply); a sending subdomain (t., email., mailer.); and
+# a brand mailbox at its own domain (brand@official.brand.example). The
+# real rollups labelled a shop's tracking mailbox a person for nine years
+# because the first version matched whole local parts only.
+_SERVICE_WORDS = frozenset("""
+    noreply donotreply notreply reply notify notification notifications
+    confirm confirmation autoconfirm shipment shipping tracking order orders
+    update updates receipt receipts invoice invoices billing statement
+    statements alert alerts news newsletter newsletters info support help
+    team hello marketing mailer bounce bounces digest mail email account
+    accounts security service services customer customers member members
+    rewards promo promotions offers sales store shop careers jobs recruiting
+    auto system admin webmaster postmaster feedback survey verify
+    verification password notice notices
+""".split())
+_SERVICE_RUN = re.compile(r"noreply|donotreply|notreply|autoconfirm|newsletter", re.I)
+_SERVICE_SUBDOMAIN = re.compile(r"@(t|e|em|mail|email|news|info|reply|mailer|official)\.", re.I)
+_MAIL_PROVIDERS = frozenset(("gmail", "googlemail", "hotmail", "ymail", "fastmail",
+                             "protonmail", "zohomail", "aol", "mail"))
+_SPLIT = re.compile(r"[-_.+]")
 
 
 def zone():
@@ -128,7 +145,21 @@ def describe_months(counts):
 
 
 def looks_like_service(sender):
-    return bool(_SERVICE.search(sender or ""))
+    sender = (sender or "").strip().lower()
+    if "@" not in sender:
+        return False
+    local, domain = sender.rsplit("@", 1)
+    labels = domain.split(".")
+    if _SERVICE_WORDS & set(_SPLIT.split(local)):
+        return True
+    if _SERVICE_RUN.search(_SPLIT.sub("", local)):
+        return True
+    if _SERVICE_SUBDOMAIN.search(sender):
+        return True
+    if local in labels[:-1]:
+        return True
+    second = labels[-2] if len(labels) >= 2 else ""
+    return second.endswith("mail") and second not in _MAIL_PROVIDERS
 
 
 def top(counter, n=TOP):

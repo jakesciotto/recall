@@ -216,6 +216,17 @@ senders and covered the busiest threads. Leave the rest as their raw id: one
 shared "unknown" bucket merges separate people into a single apparent
 speaker.
 
+**Read the rollup you emit, with the real data in it.** The email rollup
+labels each top sender a person or a service, and the heuristic matched a
+short list of whole local parts. A shop's tracking mailbox was a person in
+every yearly rollup for nine years, its order-update mailbox for five, and
+nobody read the line. A replay of the rule over the 69 real addresses in
+the rollups found 23 flips, 3 of them wrong, and the wrong ones shaped the
+rule: a university's third-level mail label is a person's mailbox, so the
+mail-domain reading stops at the second level. The test fixtures are
+invented shapes; the measurement is the real list, and the label line says
+"heuristic" because one carrier's mailbox still reads as a person.
+
 ## Retrieval
 
 **Hybrid always.** Pure vector search underperforms on a personal archive
