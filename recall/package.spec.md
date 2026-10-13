@@ -12,6 +12,8 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
 - rows never carry NUL
 - the chunk budget takes the worst measured ratio
 - a whole decline is graded by the reference, not by the model
+- the judge labels only a row nobody labelled
+- an agent label never touches a human or judge column
 
 ## works when
 - boundary "no hits forbids an answer" at build_prompt via test "test_no_hits_forbids_an_answer"
@@ -24,6 +26,8 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
 - boundary "rows never carry NUL" at clean via test "test_nul_is_stripped_from_every_text_column"
 - boundary "the chunk budget takes the worst measured ratio" at calibrate via test "test_it_takes_the_worst_ratio_not_the_average"
 - boundary "a whole decline is graded by the reference, not by the model" at grade_decline via test "test_a_whole_decline_against_a_named_answer_is_no"
+- boundary "the judge labels only a row nobody labelled" at labeller via test "test_the_judge_labels_only_an_unlabelled_row"
+- boundary "an agent label never touches a human or judge column" at save_agent via test "test_it_writes_only_the_agent_columns"
 - passes test "test_it_checks_health_before_bisecting"
 - passes test "test_a_genuinely_oversized_item_is_isolated_and_dropped"
 - passes test "test_a_wrong_dimension_is_a_setup_fault"
@@ -46,6 +50,8 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
 - rows never carry NUL: `clean` returned its input unchanged -> RED, "FAILED tests/test_ingest.py::TestRowsNeverCarryNul::test_nul_is_stripped_from_every_text_column | 1 failed". Dropping `clean` from one column of `_row` (source, then date_confidence) stayed GREEN: the test asserted five named columns. It now puts a NUL in every string field and reads the whole row; both breaks -> RED, "1 failed".
 - the chunk budget takes the worst measured ratio: measure_density returned the average instead of the minimum -> RED, "FAILED tests/test_chunking.py::TestCalibrate::test_it_takes_the_worst_ratio_not_the_average | 1 failed"
 - a whole decline is graded by the reference, not by the model: grade_decline returned its input unchanged -> RED, "FAILED tests/test_judge.py::TestADeclineIsGradedByCode::test_a_whole_decline_against_a_named_answer_is_no | 1 failed"
+- the judge labels only a row nobody labelled: labeller checked judge_correct first, so the judge outranked a human and an agent -> RED, "FAILED tests/test_labels.py::TestLabel::test_the_judge_labels_only_an_unlabelled_row | 2 failed, 1 passed, 4 subtests passed" (the subtests "human alone" and "agent alone" red)
+- an agent label never touches a human or judge column: save_agent's UPDATE gained `verdict = %s` -> RED, "FAILED tests/test_labels.py::TestSaveAgent::test_it_writes_only_the_agent_columns | 1 failed"
 
 ## why
 "No hits forbids an answer" is the product. The prompt builder refuses to ask
@@ -93,3 +99,11 @@ answers that give the fact are never marked wrong by a pattern.
 characters per token depending on the source. A budget derived from the average
 silently rejects a third of the mail. Calibration measures the corpus and takes
 the densest sample.
+
+"The judge labels only a row nobody labelled" and "an agent label never touches a
+human or judge column" are the two halves of one rule: three labellers, three
+column sets, and the label of a row is the later of the human and the agent, else
+the judge. The owner gave 55 labels and stopped; that set is the calibration the
+judge is measured against, and it survives only if nothing else writes `verdict`.
+An agent's ruling lives in its own columns with a required note, so the judge
+against the human and the agent against both stay separate counts.

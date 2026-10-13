@@ -218,6 +218,11 @@ class TestQueue(unittest.TestCase):
         self.assertIn("answer IS NOT NULL", sql)
         self.assertIn("judged_at IS NULL", sql)
 
+    def test_no_limit_judges_everything(self):
+        with mock.patch.object(db, "fetch", return_value=[]) as fetch:
+            judge.unjudged(Conn(), None)
+        self.assertNotIn("LIMIT", fetch.call_args.args[1])
+
     def test_redo_lifts_the_judged_filter(self):
         with mock.patch.object(db, "fetch", return_value=[]) as fetch:
             judge.unjudged(Conn(), 5, redo=True)

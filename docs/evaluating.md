@@ -119,8 +119,51 @@ source, when you wrote the question. Hidden, a question like "whom did I
 text most in 2021" asks you to recount the archive from memory, and a
 label made that way is a guess with a name.
 
-The review writes only `verdict` and `note`. It cannot write a `judge_*`
-column. Neither side may overwrite the other, or comparing them is circular.
+The review writes only `verdict`, `note` and `labelled_at`. It cannot write
+a `judge_*` or an `agent_*` column. No labeller may overwrite another, or
+comparing them is circular.
+
+## Who labels
+
+You do not. The first few dozen hand labels are the calibration set, and
+after that the judge labels every row. Three labellers write to the log and
+each owns its columns:
+
+| labeller | columns | writes through |
+|---|---|---|
+| you | `verdict`, `note`, `labelled_at` | `recall review` |
+| the judge | `judge_*` | `recall judge`, and `recall eval` when it ends |
+| an agent | `agent_verdict`, `agent_note`, `agent_name`, `agent_at` | `recall label` |
+
+The label of a row is the later of yours and the agent's when both exist,
+whichever one exists otherwise, and the judge's `judge_correct` when
+neither does: `yes` is good, `no` and `partly` are bad. A row without a
+reference and without a human or agent label has no label, because there
+is nothing to grade against.
+
+```bash
+recall report          # who labelled what, the good rate, the open disagreements
+recall report --json   # the same, for an agent
+recall show 42         # one row in full: screen, every source, every label
+recall label 42 bad --by claude-fable-5.1 --note "the reference holds the fact; the answer declined"
+```
+
+`recall report` is the one screen a human opens. An **open disagreement**
+is a row where your label and the judge differ and no agent has ruled on it
+since you labelled it. The agent that rules is one with tools, not a model
+call: it reads the row with `recall show`, checks the reference against the
+index (a count, a query, an adapter replay), and writes `recall label` with
+the reason. The note is required because a label without a reason is a
+coin. A later `recall review` on the same row outranks the agent, so the
+override stays yours.
+
+What this replaces: a queue. `recall review` once ended every eval batch,
+and on this archive it took 55 labels before the owner said the point of
+the system was for an agent to do the labelling. On those 55, the judge
+agreed on 39 of 53 that carried a judge word, and 11 of the 14
+disagreements were declines labelled good where the judge said no against
+the reference, which is the frame the owner had chosen. The judge was
+already the more consistent labeller.
 
 ## Why both, and what the comparison showed
 
@@ -160,8 +203,10 @@ Three things follow.
    [answering.md](answering.md). A structural fix, marking the addressee
    at chunk build time, is not attempted.
 
-So run both. Label a few dozen rows by hand, then compare `verdict` against
-`judge_grounded` before you trust the judge on anything.
+So run both, once. Label a few dozen rows by hand, compare `verdict`
+against the judge, and keep those rows as the calibration set. `recall
+report` prints the agreement on every run. After that the judge labels and
+you open the report when you want to; see "Who labels" above.
 
 ```sql
 SELECT judge_grounded, verdict, count(*)

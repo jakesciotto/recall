@@ -467,6 +467,20 @@ regex also matches a partial answer that gives the fact. Do not write "by
 definition" about a model, and simulate a rule over the labelled rows
 before it ships.
 
+**A review queue for the owner is a design defect.** Every eval batch ended
+with "next: recall judge, then recall review", and the review walked the
+owner through every row. After 55 labels the owner said the point of the
+system was for an agent to do the labelling, and the numbers agreed: the
+judge matched the human on 39 of 53, and 11 of the 14 misses were rows
+labelled good where the judge said no against the reference, the frame the
+owner had chosen a week earlier. A tired human is a less consistent labeller
+than a model holding a fixed rule. So the hand labels became the calibration
+set, the judge became the labeller, an eval batch judges its own rows before
+it returns, and the one screen left is a report that names the open
+disagreements for an agent with tools to rule on. The shape to keep: three
+labellers, three column sets, nobody writes another's columns, and the
+label of a row is the later of the human and the agent, else the judge.
+
 **A parity gap is a count, not a category.** The Messages index stood 395
 chunks short of the private one it replaced, and the gap carried one label
 for months: "images with no attachment-table row". Measured, the export

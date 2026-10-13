@@ -12,15 +12,16 @@ per question and a model could not read from the reference text. Every
 question is logged with client = eval, which keeps a batch separable from
 the questions you ask by hand.
 
-Nothing is scored here. The judge and the review do that, on the log this
-fills. See docs/evaluating.md.
+When the asking ends the judge runs over every unjudged row, so a batch
+leaves no queue behind it. `--no-judge` keeps that for a later `recall
+judge`. See docs/evaluating.md.
 """
 
 import datetime as dt
 import re
 import time
 
-from . import answer, config, db, querylog, retrieve
+from . import answer, config, db, judge, querylog, retrieve
 
 _NUMBERED = re.compile(r"^\s*\d+\.\s+(.+?)\s*$")
 _EXPECT = re.compile(r"^\s*expect:\s*(.+?)\s*$", re.I)
@@ -83,8 +84,9 @@ def ask_one(question, embedder, k=retrieve.TOP_K, expected=None,
     return text, cited, error
 
 
-def run(path, embedder, k=retrieve.TOP_K, log=print):
-    """Ask every question in the file. Returns how many were asked."""
+def run(path, embedder, k=retrieve.TOP_K, log=print, judge_after=True):
+    """Ask every question in the file, then judge. Returns how many were
+    asked."""
     qs = parse(open(path, encoding="utf-8").read())
     if not qs:
         log(f"no numbered questions in {path}")
@@ -104,5 +106,12 @@ def run(path, embedder, k=retrieve.TOP_K, log=print):
         else:
             status = f"cited {len(cited)} of {k}"
         log(f"  {i:>3}. {status:<24} {_ms(started):>6} ms  {q[:60]}")
-    log(f"\nasked {len(qs)}. next:  recall judge, then recall review")
+    if judge_after and config.CHAT_URL:
+        log("")
+        with db.connect() as conn:
+            counts = judge.run(conn, limit=None, log=log)
+        log(f"\nasked {len(qs)}, judged {sum(counts.values())}. "
+            "next:  recall report")
+    else:
+        log(f"\nasked {len(qs)}. next:  recall judge, then recall report")
     return len(qs)

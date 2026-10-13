@@ -276,7 +276,10 @@ def cmd_ask(args):
 
 def cmd_eval(args):
     from . import evalrun
-    return 0 if evalrun.run(args.file, _embedder(), k=args.k) else 1
+    asked = evalrun.run(args.file, _embedder(), k=args.k,
+                        judge_after=not args.no_judge,
+                        log=lambda line: print(line, flush=True))
+    return 0 if asked else 1
 
 
 def cmd_judge(args):
@@ -293,6 +296,39 @@ def cmd_review(args):
     with db.connect() as conn:
         db.apply_schema(conn)
         review.run(conn, limit=args.limit, redo=args.redo)
+    return 0
+
+
+def cmd_label(args):
+    from . import db, labels
+    with db.connect() as conn:
+        db.apply_schema(conn)
+        labels.save_agent(conn, args.id, args.verdict, args.by, args.note)
+    print(f"#{args.id} {args.verdict}, by {args.by}")
+    return 0
+
+
+def cmd_show(args):
+    from . import db, review
+    with db.connect() as conn:
+        db.apply_schema(conn)
+        print(review.show(conn, args.id))
+    return 0
+
+
+def cmd_report(args):
+    import json
+    from . import db, labels
+    with db.connect() as conn:
+        db.apply_schema(conn)
+        rows = labels.rows(conn)
+    summary = labels.summarise(rows)
+    open_rows = labels.open_disagreements(rows)
+    if args.json:
+        print(json.dumps({"summary": summary, "disagreements": open_rows},
+                         indent=1, default=str))
+    else:
+        print(labels.format_report(summary, open_rows))
     return 0
 
 
@@ -337,6 +373,8 @@ def main(argv=None):
     e = sub.add_parser("eval", help="ask every question in a file, logging each")
     e.add_argument("file", help="markdown or text; numbered lines are questions")
     e.add_argument("-k", type=int, default=8)
+    e.add_argument("--no-judge", action="store_true",
+                   help="leave the new rows for a later recall judge")
     e.set_defaults(fn=cmd_eval)
 
     j = sub.add_parser("judge", help="grade logged answers with a model")
@@ -352,6 +390,21 @@ def main(argv=None):
     r.add_argument("--redo", action="store_true",
                    help="revisit rows you already labelled")
     r.set_defaults(fn=cmd_review)
+
+    l = sub.add_parser("label", help="write an agent's label on a logged answer")
+    l.add_argument("id", type=int)
+    l.add_argument("verdict", choices=("good", "bad"))
+    l.add_argument("--by", required=True, help="the agent's name, stored beside the label")
+    l.add_argument("--note", required=True, help="why; the reason is the point")
+    l.set_defaults(fn=cmd_label)
+
+    w = sub.add_parser("show", help="print one logged answer with its sources and every label")
+    w.add_argument("id", type=int)
+    w.set_defaults(fn=cmd_show)
+
+    t = sub.add_parser("report", help="who labelled what, the good rate, the open disagreements")
+    t.add_argument("--json", action="store_true", help="the same as JSON, for an agent")
+    t.set_defaults(fn=cmd_report)
 
     s = sub.add_parser("serve", help="run the HTTP API")
     s.add_argument("--bind")

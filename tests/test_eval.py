@@ -49,8 +49,12 @@ def fake_conn():
     yield object()
 
 
-def run_eval(text, chat_url="http://x/v1", answer_text="it [1]"):
+JUDGED = []
+
+
+def run_eval(text, chat_url="http://x/v1", answer_text="it [1]", judge_after=True):
     logged = []
+    JUDGED.clear()
     out = io.StringIO()
     with tempfile.TemporaryDirectory() as d:
         path = pathlib.Path(d) / "q.md"
@@ -63,8 +67,11 @@ def run_eval(text, chat_url="http://x/v1", answer_text="it [1]"):
              mock.patch.object(evalrun.config, "CHAT_URL", chat_url), \
              mock.patch.object(evalrun.querylog, "log",
                                lambda **kw: logged.append(kw) or 1), \
+             mock.patch.object(evalrun.judge, "run",
+                               lambda conn, limit, **kw: JUDGED.append(limit) or {"yes": 3}), \
              contextlib.redirect_stdout(out):
-            n = evalrun.run(path, embedder=lambda t: [0.0] * 4)
+            n = evalrun.run(path, embedder=lambda t: [0.0] * 4,
+                            judge_after=judge_after)
     return n, logged, out.getvalue()
 
 
@@ -89,6 +96,25 @@ class TestRun(unittest.TestCase):
         self.assertIsNone(logged[0]["answer"])
         self.assertIn("no generation endpoint", text)
 
+    def test_it_judges_its_own_rows_when_done(self):
+        """The judge is the labeller. A batch that ends with "next: recall
+        judge" leaves a queue for a human to remember."""
+        _, logged, text = run_eval(FILE)
+        self.assertEqual(JUDGED, [None])
+        self.assertEqual(len(logged), 3)
+        self.assertIn("judged 3", text)
+        self.assertIn("recall report", text)
+        self.assertNotIn("recall judge", text)
+
+    def test_no_judge_leaves_the_rows_for_later(self):
+        _, _, text = run_eval(FILE, judge_after=False)
+        self.assertEqual(JUDGED, [])
+        self.assertIn("recall judge", text)
+
+    def test_no_endpoint_skips_the_judge_too(self):
+        _, _, text = run_eval(FILE, chat_url="")
+        self.assertEqual(JUDGED, [])
+
     def test_a_failed_answer_does_not_end_the_batch(self):
         def boom(prompt, meta=None):
             raise OSError("model down")
@@ -104,7 +130,8 @@ class TestRun(unittest.TestCase):
                  mock.patch.object(evalrun.querylog, "log",
                                    lambda **kw: logged.append(kw) or 1), \
                  contextlib.redirect_stdout(io.StringIO()):
-                n = evalrun.run(path, embedder=lambda t: [0.0] * 4)
+                n = evalrun.run(path, embedder=lambda t: [0.0] * 4,
+                                judge_after=False)
         self.assertEqual(n, 3)
         self.assertEqual(logged[0]["error"], "OSError: model down")
         self.assertIsNone(logged[0]["answer"])

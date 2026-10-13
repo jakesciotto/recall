@@ -7,7 +7,7 @@ from unittest import mock
 from recall import captions, cli
 
 VERBS = ("doctor", "ingest", "caption", "ask", "eval", "judge", "review",
-         "serve")
+         "serve", "label", "show", "report")
 
 
 class TestEveryVerbDispatches(unittest.TestCase):
@@ -16,7 +16,9 @@ class TestEveryVerbDispatches(unittest.TestCase):
 
     def test_each_verb_reaches_its_function(self):
         for argv in (["doctor"], ["ingest"], ["caption"], ["ask", "q"],
-                     ["eval", "f"], ["judge"], ["review"], ["serve"]):
+                     ["eval", "f"], ["judge"], ["review"], ["serve"],
+                     ["label", "7", "good", "--by", "a", "--note", "n"],
+                     ["show", "7"], ["report"]):
             with self.subTest(verb=argv[0]):
                 seen = []
                 with contextlib.ExitStack() as stack:
@@ -128,3 +130,79 @@ class TestIngestLogFlushes(unittest.TestCase):
             cli.main(["ingest"])
             captured["log"]("one line")
         self.assertGreaterEqual(Out.flushes, 1)
+
+
+@contextlib.contextmanager
+def _conn():
+    yield object()
+
+
+class TestLabelCommand(unittest.TestCase):
+    def test_label_writes_through_save_agent(self):
+        from recall import db, labels
+        seen = {}
+
+        def save_agent(conn, query_id, verdict, name, note):
+            seen.update(id=query_id, verdict=verdict, name=name, note=note)
+        with mock.patch.object(labels, "save_agent", save_agent), \
+             mock.patch.object(db, "connect", _conn), \
+             mock.patch.object(db, "apply_schema", lambda conn: None), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = cli.main(["label", "7", "bad", "--by", "claude-fable-5.1",
+                             "--note", "the reference holds the fact"])
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, {"id": 7, "verdict": "bad", "name": "claude-fable-5.1",
+                                "note": "the reference holds the fact"})
+
+    def test_a_third_verdict_and_a_missing_note_stop_at_the_parser(self):
+        for argv in (["label", "7", "partly", "--by", "a", "--note", "n"],
+                     ["label", "7", "good", "--by", "a"],
+                     ["label", "7", "good", "--note", "n"]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                cli.main(argv)
+
+
+class TestShowCommand(unittest.TestCase):
+    def test_show_prints_the_screen_for_the_id(self):
+        from recall import db, review
+        out = io.StringIO()
+        with mock.patch.object(review, "show", lambda conn, i: f"SCREEN {i}"), \
+             mock.patch.object(db, "connect", _conn), \
+             mock.patch.object(db, "apply_schema", lambda conn: None), \
+             contextlib.redirect_stdout(out):
+            self.assertEqual(cli.main(["show", "42"]), 0)
+        self.assertIn("SCREEN 42", out.getvalue())
+
+
+class TestReportCommand(unittest.TestCase):
+    ROWS = [{"id": 1, "verdict": "good", "labelled_at": None, "judge_correct": "no",
+             "judge_question_type": "recall", "agent_verdict": None, "agent_at": None,
+             "question": "who raced"},
+            {"id": 2, "verdict": None, "labelled_at": None, "judge_correct": "yes",
+             "judge_question_type": "recall", "agent_verdict": None, "agent_at": None,
+             "question": "when"}]
+
+    def run_report(self, *flags):
+        import json
+        from recall import db, labels
+        out = io.StringIO()
+        with mock.patch.object(labels, "rows", lambda conn: self.ROWS), \
+             mock.patch.object(db, "connect", _conn), \
+             mock.patch.object(db, "apply_schema", lambda conn: None), \
+             contextlib.redirect_stdout(out):
+            self.assertEqual(cli.main(["report", *flags]), 0)
+        return out.getvalue()
+
+    def test_report_prints_the_one_screen(self):
+        text = self.run_report()
+        self.assertIn("1 open disagreements", text)
+        self.assertIn("#1", text)
+        self.assertIn("agrees with the human on 0 of 1", text)
+
+    def test_json_carries_the_summary_and_the_dossier(self):
+        import json
+        data = json.loads(self.run_report("--json"))
+        self.assertEqual(data["summary"]["open"], 1)
+        self.assertEqual([d["id"] for d in data["disagreements"]], [1])
+        self.assertEqual(data["disagreements"][0]["question"], "who raced")

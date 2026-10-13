@@ -111,6 +111,15 @@ ALTER TABLE query_log ADD COLUMN IF NOT EXISTS expected_decline text;
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS judge_declined text;
 CREATE INDEX IF NOT EXISTS query_log_unjudged_idx
   ON query_log (id) WHERE judged_at IS NULL;
+-- Who labelled, and when. labelled_at stamps the human verdict so an
+-- agent's ruling and a later human relabel order by time. The agent
+-- columns are a third labeller's word: recall label writes them, and
+-- nothing else does. No side writes another's columns.
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS labelled_at timestamptz;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS agent_verdict text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS agent_note text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS agent_name text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS agent_at timestamptz;
 """
 
 VECTOR_INDEX = ("CREATE INDEX IF NOT EXISTS chunk_embedding_idx ON chunk "

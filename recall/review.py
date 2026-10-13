@@ -33,7 +33,7 @@ most in 2021" asks you to recount the archive from memory.
 Nothing here touches chunk, and nothing runs on the answer path.
 """
 
-from . import answer, config, db, judge
+from . import answer, config, db, judge, labels
 
 VERDICTS = ("good", "bad")
 
@@ -69,8 +69,10 @@ def unlabelled(conn, limit, redo=False):
         parts.append("verdict IS NULL")
     return db.fetch(conn, "SELECT id, question, expected, expected_decline, "
                           "answer, cited, asked_at, k, "
-                          "verdict, note, judge_grounded, judge_retrieval, "
-                          "judge_hedged, judge_question_type, judge_note "
+                          "verdict, note, labelled_at, "
+                          "judge_grounded, judge_retrieval, "
+                          "judge_hedged, judge_question_type, judge_note, "
+                          "agent_verdict, agent_note, agent_name, agent_at "
                           f"FROM query_log WHERE {' AND '.join(parts)} "
                           f"ORDER BY id DESC LIMIT {int(limit)}")
 
@@ -114,11 +116,13 @@ def format_row(row, sources):
     return "\n".join(lines)
 
 
-def format_sources(sources, cited=None, label=None):
+def format_sources(sources, cited=None, label=None, all_sources=False):
     """The source texts, on request: the cited ones, or all of them when
-    the answer cited nothing. Relabelled as the answerer saw them."""
+    the answer cited nothing or the caller asks for everything. Relabelled
+    as the answerer saw them."""
     label = config.USER_LABEL if label is None else label
-    chosen = [s for s in sources if s["n"] in (cited or [])] or sources
+    chosen = sources if all_sources else (
+        [s for s in sources if s["n"] in (cited or [])] or sources)
     lines = []
     for s in chosen:
         lines.append(_index_line(s, cited))
@@ -127,18 +131,52 @@ def format_sources(sources, cited=None, label=None):
 
 
 def format_judge(row):
-    """What the model thought. Printed only after you decide."""
+    """What the judge thought, and what an agent ruled. Printed only after
+    you decide, for the same anchoring reason on both."""
     if not row.get("judge_grounded"):
-        return "  judge: not judged yet"
-    return (f"  judge: grounded={row.get('judge_grounded')} "
-            f"retrieval={row.get('judge_retrieval')} "
-            f"hedged={row.get('judge_hedged')} "
-            f"type={row.get('judge_question_type')}\n"
-            f"    {row.get('judge_note') or ''}")
+        text = "  judge: not judged yet"
+    else:
+        text = (f"  judge: grounded={row.get('judge_grounded')} "
+                f"retrieval={row.get('judge_retrieval')} "
+                f"hedged={row.get('judge_hedged')} "
+                f"type={row.get('judge_question_type')}\n"
+                f"    {row.get('judge_note') or ''}")
+    if row.get("agent_verdict"):
+        text += (f"\n  agent: {row['agent_verdict']} ({row.get('agent_name')})"
+                 f"\n    {row.get('agent_note') or ''}")
+    return text
+
+
+def fetch_row(conn, query_id):
+    rows = db.fetch(conn, f"SELECT {labels.COLUMNS}, judge_grounded, "
+                          "judge_retrieval, judge_hedged "
+                          "FROM query_log WHERE id = %s", [int(query_id)])
+    return rows[0] if rows else None
+
+
+def format_show(row, sources):
+    """One row in full: the review screen, every source expanded, then
+    every labeller's word. The agent and the human read the same screen."""
+    return "\n".join([
+        format_row(row, sources),
+        "",
+        "SOURCES IN FULL",
+        format_sources(sources, row.get("cited"), all_sources=True),
+        "",
+        format_judge(row),
+    ])
+
+
+def show(conn, query_id):
+    row = fetch_row(conn, query_id)
+    if row is None:
+        raise ValueError(f"no logged question #{query_id}")
+    return format_show(row, judge.sources_for(conn, row["id"]))
 
 
 def save_verdict(conn, query_id, verdict, note=None):
-    """Write your label. Only verdict and note, never a judge column.
+    """Write your label. Only verdict, note and the stamp, never a judge
+    column, never an agent column.
 
     An unknown verdict raises rather than writing. The set is small and
     fixed, and a typo becoming a third category would split the very
@@ -151,7 +189,8 @@ def save_verdict(conn, query_id, verdict, note=None):
         raise ValueError(f"verdict must be one of {VERDICTS}, got {verdict!r}")
     note = note if (note or "").strip() else None
     with conn.cursor() as cur:
-        cur.execute("UPDATE query_log SET verdict = %s, note = %s WHERE id = %s",
+        cur.execute("UPDATE query_log SET verdict = %s, note = %s, "
+                    "labelled_at = now() WHERE id = %s",
                     [verdict, note, int(query_id)])
     conn.commit()
 

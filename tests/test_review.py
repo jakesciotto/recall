@@ -50,6 +50,41 @@ class TestScreen(unittest.TestCase):
     def test_an_unjudged_row_says_so(self):
         self.assertIn("not judged", review.format_judge(dict(ROW, judge_grounded=None)))
 
+    def test_the_review_screen_carries_no_agent_opinion(self):
+        """Same anchoring as the judge, one labeller over."""
+        ruled = dict(ROW, agent_verdict="bad", agent_name="claude-fable-5.1",
+                     agent_note="the reference holds the fact")
+        self.assertNotIn("agent", review.format_row(ruled, SOURCES).lower())
+        self.assertNotIn("holds the fact", review.format_row(ruled, SOURCES))
+
+    def test_the_agent_prints_only_afterwards(self):
+        ruled = dict(ROW, agent_verdict="bad", agent_name="claude-fable-5.1",
+                     agent_note="the reference holds the fact")
+        after = review.format_judge(ruled)
+        self.assertIn("agent: bad (claude-fable-5.1)", after)
+        self.assertIn("holds the fact", after)
+        self.assertNotIn("agent", review.format_judge(ROW))
+
+    def test_show_expands_every_source_and_ends_with_every_label(self):
+        """The agent and the human read the same screen; the agent needs
+        all the sources, not the cited ones only."""
+        from tests.test_judge import SOURCES as TWO
+        ruled = dict(ROW, cited=[1], agent_verdict="bad", agent_name="a",
+                     agent_note="why")
+        text = review.format_show(ruled, TWO)
+        self.assertIn("great first race man", text)
+        self.assertIn("thanks!", text)
+        self.assertLess(text.index("thanks!"), text.index("grounded=yes"))
+        self.assertIn("agent: bad (a)", text)
+
+    def test_all_sources_overrides_the_cited_filter(self):
+        from tests.test_judge import SOURCES as TWO
+        cited_only = review.format_sources(TWO, cited=[1], label="Ada")
+        everything = review.format_sources(TWO, cited=[1], label="Ada", all_sources=True)
+        self.assertNotIn("thanks!", cited_only)
+        self.assertIn("thanks!", everything)
+        self.assertIn("* [1]", everything)
+
     def test_sources_are_relabelled_as_the_answerer_saw_them(self):
         text = review.format_sources(SOURCES, cited=[1], label="Ada")
         self.assertIn("Ada: great first race man", text)
@@ -65,7 +100,9 @@ class TestSaveVerdict(unittest.TestCase):
         sql, params = conn.log[0]
         self.assertIn("verdict = %s", sql)
         self.assertIn("note = %s", sql)
+        self.assertIn("labelled_at = now()", sql)
         self.assertNotIn("judge", sql)
+        self.assertNotIn("agent", sql)
         self.assertEqual(params, ["good", "fine", 7])
         self.assertEqual(conn.commits, 1)
 
@@ -93,6 +130,8 @@ class TestQueue(unittest.TestCase):
         self.assertIn("answer IS NOT NULL", sql)
         self.assertIn("verdict IS NULL", sql)
         self.assertIn("ORDER BY id DESC", sql)
+        for col in ("agent_verdict", "agent_name", "agent_note", "labelled_at"):
+            self.assertIn(col, sql)
 
 
 class TestLoop(unittest.TestCase):

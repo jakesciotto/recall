@@ -280,7 +280,8 @@ def save(conn, query_id, fields):
 
 
 def unjudged(conn, limit, redo=False):
-    """Logged questions waiting for a judgment, oldest first.
+    """Logged questions waiting for a judgment, oldest first. No limit
+    means all of them, which is what an eval batch asks for when it ends.
 
     A row with no answer is skipped, always. A sources-only request never
     asked for an answer, so there is nothing to grade, and judging it "no"
@@ -289,10 +290,11 @@ def unjudged(conn, limit, redo=False):
     parts = ["answer IS NOT NULL"]
     if not redo:
         parts.append("judged_at IS NULL")
+    cap = "" if limit is None else f" LIMIT {int(limit)}"
     return db.fetch(conn, "SELECT id, question, expected, expected_decline, "
                           "answer, k, date_phrase "
                           f"FROM query_log WHERE {' AND '.join(parts)} "
-                          f"ORDER BY id LIMIT {int(limit)}")
+                          f"ORDER BY id{cap}")
 
 
 def sources_for(conn, query_id):
