@@ -44,6 +44,8 @@ The 0.37 spec for this component held no file-existence check, so none is retire
 
 "The chunk budget takes the worst measured ratio". Text runs from 1.4 to 4.4 characters per token, by source. A budget from the average silently rejects a third of the mail. Calibration measures the corpus and takes the densest sample.
 
+"The judge labels only a row nobody labelled" and "an agent label never touches a human or judge column" are the two halves of one rule. Three labellers write three column sets. The label of a row is the later of the human and the agent, else the judge. The owner gave 55 labels and stopped. That set is the calibration the judge is measured against, and it survives only if nothing else writes `verdict`. An agent's ruling lives in its own columns with a required note, so the judge against the human and the agent against both stay separate counts.
+
 ### Source adapters
 
 `recall ingest` needs no configuration because detection lives in the adapter, not in a config file. To drop a file under `data/` is the whole setup. A new source is one small class that registers itself.

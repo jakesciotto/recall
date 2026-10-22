@@ -223,3 +223,22 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   because: Eleven of forty labelled rows were whole declines graded correct because the answer identified a gap in the sources, and the rule as a prompt sentence changed none of them. The model reports whether the answer declined the whole question; the eval author states whether a decline is the correct answer, as a marker under the reference; code grades a whole decline from the two. A part decline keeps the model's grade.
   refuted: grade_decline returns its input unchanged -> the test test_a_whole_decline_against_a_named_answer_is_no went red (2026-10-22)
   kinds: none
+- the judge labels only a row nobody labelled: The label of a row is the later of the human and the agent, the one that spoke when one did, and the judge's word only when neither spoke.
+  over: six rows: a human verdict alone, an agent verdict alone, an agent after a human, a human after an agent, a judge word alone, and no label at all
+  via: test_the_judge_labels_only_an_unlabelled_row
+  because: the human's labels are the calibration the judge is measured against, and a judge that outranks a human or an agent grades itself
+  kinds: none
+- an agent label never touches a human or judge column: save_agent updates the four agent columns of one row and no other column.
+  over: one agent label saved through save_agent with a verdict, a name and a note
+  via: test_it_writes_only_the_agent_columns
+  because: the judge is measured against the human and the agent against both, and a write to verdict or a judge column makes that comparison circular
+  kinds: storage
+  checklist: scoped-reads dismissed: save_agent reads nothing, and the archive has one owner
+  checklist: encrypted-storage dismissed: a label is a word and a note in the owner's own Postgres, not a secret
+  checklist: key-rotation-compatibility dismissed: nothing is encrypted
+  checklist: input-validation dismissed: save_agent refuses a verdict outside good and bad, an empty name and an empty note, and tests cover each, but no invariant names it yet
+  checklist: revision-preservation declared as an agent label never touches a human or judge column
+  checklist: commit-ordered-effects dismissed: one UPDATE then one commit, and nothing follows the commit
+  checklist: durable-dispatch-intent dismissed: the write dispatches nothing
+  checklist: declared-target-coverage dismissed: the UPDATE names one row by id
+  checklist: completion-evidence dismissed: the commit is the completion, and the test counts it
