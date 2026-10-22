@@ -62,6 +62,11 @@ USER_LABEL = _env("RECALL_USER_LABEL", "")
 # The model that grades logged answers. A model grading its own output
 # shows self-preference bias, so name a different one. See docs/evaluating.md.
 JUDGE_MODEL = _env("RECALL_JUDGE_MODEL", "")
+# The judge reads whole sources inside one character budget shared by the
+# sources of a row; only the longest lose their tail. Size it to the judge
+# model's context. The default held the densest logged row inside a 32k
+# context. See docs/evaluating.md.
+JUDGE_SOURCE_CHARS = int(_env("RECALL_JUDGE_SOURCE_CHARS", "40000"))
 # Optional: captions image attachments. Any OpenAI-compatible chat endpoint
 # that accepts image content works. See docs/sources.md.
 VISION_URL = _env("RECALL_VISION_URL", "")
