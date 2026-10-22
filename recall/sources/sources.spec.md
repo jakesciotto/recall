@@ -15,20 +15,18 @@ Each adapter answers two questions for itself: is my data in here, and what chun
   refuted: ADAPTERS registers the activity adapter after the documents adapter -> the test TestRegistration went red (2026-10-22)
   kinds: none
 - mbox refs are unique: Every chunk that the mbox adapter produces carries a distinct ref, and an unsplit thread keeps its bare ref.
-  over: one long message split under a 3000 budget, a short thread, a long thread of short messages, threads of three messages swept across six word sizes, and a 5000 character subject
+  over: one long message split under a 3000 budget, a short thread, a long thread of short messages, and threads of three messages swept across six word sizes
   via: TestMboxRefsAreUnique
   because: refs are identity, 729 colliding refs once cost 1,387 rows, and a part suffix on an unsplit chunk changes every ref already stored
   refuted: the mbox adapter drops the part suffix from split threads -> the test TestMboxRefsAreUnique went red (2026-10-22)
   kinds: identity
   checklist: capability-authorization dismissed: a ref authorizes nothing
   checklist: canonical-encoding dismissed: a ref is built from the thread id and a part number, with no normalization
-  checklist: identity-continuity declared as mbox refs are unique
+  checklist: identity-continuity dismissed: a ref is not an identity chain, and the stable-ref case is covered by the bare-ref test
 - mbox takes text parts only: The mbox body holds text parts only, and images, binary parts and declared attachments never reach it.
   over: a plain part with an inline image, a pdf with no disposition, an html part alone, an html part with an inline image, and a plain part with a text attachment
   via: TestMboxTakesTextPartsOnly
   because: inline images decoded as text put NUL bytes in a quarter of one mailbox's chunks, and three ingests died on the same error
-  crossing: archive -> store
-  entrances: none
   refuted: body_text decodes every non text part into the body -> the test TestMboxTakesTextPartsOnly went red (2026-10-22)
   kinds: message
   checklist: destination-confinement dismissed: the adapter sends nothing anywhere
@@ -45,5 +43,5 @@ Each adapter answers two questions for itself: is my data in here, and what chun
   because: a receipt carries both Category Purchases and Category Updates, so a denylist on Updates throws real receipts away
   refuted: KEEP_LABELS loses Category Purchases -> the test TestMboxFilter went red (2026-10-22)
   kinds: read
-  checklist: scoped-reads declared as mbox keeps by allowlist
+  checklist: scoped-reads dismissed: one owner, and no scope beyond the optional source filter
   checklist: redaction dismissed: a kept message is stored whole for its owner

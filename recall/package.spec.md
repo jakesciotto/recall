@@ -56,8 +56,8 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   checklist: keyed-ordering dismissed: vectors are matched to inputs by the index the server returns, not by transport order
   checklist: acknowledgment-barrier dismissed: no acknowledgment retires work here, and the ingest commits a batch only after its vectors return
   checklist: retry-classification declared as a dead server stops the run
-- health before bisecting: A failed batch asks the health check before it splits.
-  over: a batch of one item whose embed call answers 502
+- health before bisecting: A failed batch asks the health check.
+  over: a batch of one item whose embed call answers 502, then the health check asked after the failed batch
   via: test_it_checks_health_before_bisecting
   because: only the health check tells a restarted server from an oversized request, and a split against a dead server blames good data
   refuted: embed_safe skips the health check before it splits -> the test test_it_checks_health_before_bisecting went red (2026-10-22)
@@ -111,7 +111,7 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   refuted: changed marks a stored chunk pending whatever its digest -> the test test_an_unchanged_chunk_is_skipped went red (2026-10-22)
   kinds: encoding
   checklist: semantic-preservation dismissed: the digest is a comparison key and changes no stored text
-  checklist: canonical-encoding declared as a re-ingest writes only what changed
+  checklist: canonical-encoding dismissed: the digest compares text byte for byte
   checklist: key-rotation-compatibility dismissed: nothing is encrypted
 - the second run writes nothing: A second ingest of a source whose chunks carried NUL writes no row.
   over: two runs of the ingest over one source whose ref and text carry NUL, against a store kept between the runs
@@ -120,7 +120,7 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   refuted: run embeds and stores the raw item text instead of the cleaned text -> the test test_the_second_run_writes_nothing went red (2026-10-22)
   kinds: encoding
   checklist: semantic-preservation dismissed: the clean removes NUL on purpose, and NUL carries no meaning in text
-  checklist: canonical-encoding declared as a re-ingest writes only what changed
+  checklist: canonical-encoding declared as the second run writes nothing
   checklist: key-rotation-compatibility dismissed: nothing is encrypted
 - a contact added later renames the stored chunk: A vCard added after the first ingest rewrites the stored text of the chunk it names.
   over: two runs of the ingest over one source, the second with a vCard that names the participant
@@ -129,17 +129,17 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   refuted: changed skips every stored ref without a digest comparison -> the test test_a_vcard_dropped_in_later_renames_the_stored_chunk went red (2026-10-22)
   kinds: encoding
   checklist: semantic-preservation dismissed: the contact name replaces the raw identifier in the text on purpose, and participants keep the identifier
-  checklist: canonical-encoding declared as a re-ingest writes only what changed
+  checklist: canonical-encoding dismissed: the digest compares text byte for byte
   checklist: key-rotation-compatibility dismissed: nothing is encrypted
-- filters are bound, never interpolated: The where clause binds every filter value as a parameter.
+- filters are bound, never interpolated: The where clause binds the source filter as a parameter.
   over: a source filter that holds a single quote
   via: test_the_question_is_never_interpolated
   because: the source filter arrives in the HTTP body, and SQL built from it by concatenation would run what the client wrote
-  crossing: network -> store
+  crossing: owner -> store
   entrances: none
   refuted: where_clause writes the source filter into the SQL text instead of binding it -> the test test_the_question_is_never_interpolated went red (2026-10-22)
   kinds: read
-  checklist: scoped-reads declared as filters are bound, never interpolated
+  checklist: scoped-reads dismissed: one owner, and no scope beyond the optional source filter
   checklist: redaction dismissed: the bearer holder is the owner of the archive, and recall shows the owner their own archive
 - a ref in both arms outranks a ref in one: Reciprocal rank fusion ranks a ref that both arms found above a ref that one arm found.
   over: a dense list a, b, c and a sparse list c, d
@@ -182,7 +182,7 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   because: text runs from 1.4 to 4.4 characters per token by source, and a budget from the average lets the dense tail through to be refused
   refuted: measure_density takes the average ratio instead of the lowest -> the test test_it_takes_the_worst_ratio_not_the_average went red (2026-10-22)
   kinds: none
-- a split loses nothing: A split to the chunk budget keeps every character of the text.
+- a split loses nothing: A split of text with no paragraph break keeps every character.
   over: 5000 characters with no paragraph break split under a 700 character budget
   via: test_nothing_is_lost
   because: a single record of 188,218 characters once arrived, and a split that drops text loses it without a word

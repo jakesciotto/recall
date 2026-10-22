@@ -4,7 +4,7 @@ Context for agents working in this repository. The coherence specs hold the rule
 
 ## Conventions
 
-1. Run the tests with `.venv/bin/python -m pytest`. The suite blocks the database and the network for every test.
+1. Run the tests with `.venv/bin/python -m pytest`. The suite blocks the database and the network for every test not marked live.
 2. The coherence specs are the source of the rules. Run `npx --no -- coherence spec --check` and `npx --no -- coherence run` before you offer a branch.
 3. Write prose in the STE100 style: short, active sentences. No em dashes, no emoji.
 4. Run npm with Node 22 first on PATH. Use npm 11 to change the lockfile.

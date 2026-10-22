@@ -38,7 +38,15 @@ jobs:
       - name: Install
         run: npm ci
 
-      # A chokepoint graded by a Python checker the project runs (tach, import-linter) needs that checker here: install the project's Python tools before the check.
+      # coherence.config.json runs the tests through .venv/bin/python, so the runner needs the same virtual environment.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python environment
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev,captions]"
 
       - name: Spec check
         run: npx --no -- coherence spec --check
@@ -47,3 +55,8 @@ jobs:
       - name: Chokepoints
         if: ${{ !cancelled() }}
         run: npx --no -- coherence run --form chokepoint --no-server --session "ci-${{ github.run_id }}" --agent ci
+
+      # Every totality oracle graded against its test; a missing test or an oracle that never fails when the code breaks fails the run.
+      - name: Totality oracles
+        if: ${{ !cancelled() }}
+        run: npx --no -- coherence run --form totality-oracle --no-server --session "ci-${{ github.run_id }}" --agent ci

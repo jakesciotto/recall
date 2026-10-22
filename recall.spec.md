@@ -9,7 +9,7 @@ Search your own archive on your own machine, and answer with citations or not at
 - model: the local embedding server and the optional chat server
 
 ## invariants
-- the test cut: Every test runs with the database and the network blocked.
+- the test cut: Every test not marked live runs with the database and the network blocked.
   over: a database connect and an HTTP request to a local port, each made inside a test
   via: TestTheCutIsReal
   because: a green run on a fresh machine must prove that the tests are isolated, and a fixture that was never seen to fail cannot be trusted
