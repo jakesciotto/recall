@@ -227,11 +227,13 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   over: six rows: a human verdict alone, an agent verdict alone, an agent after a human, a human after an agent, a judge word alone, and no label at all
   via: test_the_judge_labels_only_an_unlabelled_row
   because: the human's labels are the calibration the judge is measured against, and a judge that outranks a human or an agent grades itself
+  refuted: labeller answers judge before it looks at the human or the agent -> the test test_the_judge_labels_only_an_unlabelled_row went red (2026-10-22)
   kinds: none
 - an agent label never touches a human or judge column: save_agent updates the four agent columns of one row and no other column.
   over: one agent label saved through save_agent with a verdict, a name and a note
   via: test_it_writes_only_the_agent_columns
   because: the judge is measured against the human and the agent against both, and a write to verdict or a judge column makes that comparison circular
+  refuted: save_agent's UPDATE also sets verdict -> the test test_it_writes_only_the_agent_columns went red (2026-10-22)
   kinds: storage
   checklist: scoped-reads dismissed: save_agent reads nothing, and the archive has one owner
   checklist: encrypted-storage dismissed: a label is a word and a note in the owner's own Postgres, not a secret
