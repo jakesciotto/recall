@@ -1,12 +1,9 @@
 {
+  "name": "recall",
   "language": "python",
-  "codeExt": ["py"],
-  "outputDir": ".coherence/out",
-  "testDir": "tests/",
-  "test": [".venv/bin/python", "-m", "pytest", "-q", "-k"],
-  "testMatch": "[1-9]\\d* passed",
-  "oracleExecution": "serial",
-  "oracleDomain": false,
-  "staticOracleExistence": false,
-  "ignore": ["node_modules", ".git", ".venv", "__pycache__", ".pytest_cache", ".coherence", "data", "work", "docs"]
+  "ignore": ["node_modules", ".venv", "__pycache__", ".pytest_cache", "recall.egg-info", "data", "work", "docs"],
+  "test": ".venv/bin/python -m pytest -q -k {filter}",
+  "testMatch": "[1-9][0-9]* passed",
+  "testFilterForm": "pytest",
+  "testJson": ".venv/bin/python -m pytest -q -k {filter} --junitxml={out}"
 }

@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "concepts": [
+    {
+      "name": "adapter",
+      "definition": "A source adapter: one class under recall/sources that detects its own export under data/ and yields chunks, registered in ADAPTERS."
+    },
+    {
+      "name": "chunk",
+      "definition": "One embeddable unit of the archive: a stable ref, its text, its source and its date, stored as one row of the chunk table."
+    },
+    {
+      "name": "ref",
+      "definition": "The stable identity of a chunk, such as email:<thread>#2. The ingest compares stored refs and digests, and an answer cites the ref it read."
+    },
+    {
+      "name": "digest",
+      "definition": "The md5 of a chunk's cleaned text, equal to Postgres md5(text), which decides whether a stored chunk is pending."
+    },
+    {
+      "name": "budget",
+      "definition": "The most characters one chunk may hold for one adapter, derived by calibration from the densest sample."
+    },
+    {
+      "name": "calibrate",
+      "definition": "To measure the lowest characters per token ratio in an adapter's samples and derive its chunk budget from it."
+    },
+    {
+      "name": "arm",
+      "definition": "One of the two retrieval paths: the dense arm ranks by vector distance and the sparse arm by full text rank."
+    },
+    {
+      "name": "citation",
+      "definition": "A bracketed source number in an answer, such as [2], that points at the second source the prompt gave the model."
+    },
+    {
+      "name": "attribution",
+      "definition": "The rule that an answer names whose experience a source reports, so another person's words never read as the user's own."
+    },
+    {
+      "name": "zone",
+      "definition": "The IANA time zone that RECALL_TZ names, used to read local times in an export."
+    },
+    {
+      "name": "receipt",
+      "definition": "A purchase confirmation mail that the mbox allowlist keeps even when it also carries Category Updates."
+    }
+  ]
+}

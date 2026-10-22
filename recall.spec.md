@@ -1,35 +1,23 @@
 # recall
 Search your own archive on your own machine, and answer with citations or not at all.
 
-## works when
-- pyproject.toml exists at root
-- docker-compose.yml exists at root
-- passes test "TestTheCutIsReal"
-- passes test "TestEveryModuleImports"
+## trust levels
+- owner: the person who runs recall on their own machine, at the terminal
+- network: an HTTP client that reaches the API, before its bearer verifies
+- archive: the exported files under data/, whose content other people wrote
+- store: the chunk rows and the query log in the local Postgres
+- model: the local embedding server and the optional chat server
 
-## why
-Nothing leaves the box. Indexing, search, the query log, and the judge all run
-against a local Postgres and a local embedding server. Prose answers are
-optional and go to whatever OpenAI-compatible endpoint the user already runs.
-No account, no upload, no API key, and no bundled chat model.
-
-An answer about your own life that cannot cite its source is indistinguishable
-from an invented one. Every answer cites, and an empty retrieval is forbidden
-from answering at all.
-
-Search is hybrid, always. Half of real questions are metadata questions in
-disguise, and vector search alone answers those badly. The dense arm and the
-sparse arm fuse by reciprocal rank.
-
-Re-runs are cheap. Chunk identity is stable, so a second ingest writes only what
-changed and a failed twelve hour run resumes instead of restarting.
-
-A restarted model server is not bad data. Both answer HTTP 502. The client asks
-the health endpoint before it reacts, waits out the restart, and retries the
-same batch. Only a healthy server's refusal counts as an oversize signal.
-
-The test suite blocks the database and the network for every test. A green run
-on a fresh machine proves the tests are isolated. That cut is itself tested.
-
-`recall doctor` is the first command to run when anything looks wrong. It
-checks every dependency and names the command that fixes each one.
+## invariants
+- the test cut: Every test runs with the database and the network blocked.
+  over: a database connect and an HTTP request to a local port, each made inside a test
+  via: TestTheCutIsReal
+  because: a green run on a fresh machine must prove that the tests are isolated, and a fixture that was never seen to fail cannot be trusted
+  refuted: the conftest fixture stops replacing db.connect -> the test TestTheCutIsReal went red (2026-10-22)
+  kinds: none
+- every module imports: Every module in the package imports without error.
+  over: every module that pkgutil walks under the recall package
+  via: TestEveryModuleImports
+  because: 120 tests passed while cli.py held a syntax error, because no test imported it
+  refuted: a new module recall/unimported.py that no other file imports holds a syntax error -> the test TestEveryModuleImports went red (2026-10-22)
+  kinds: none
