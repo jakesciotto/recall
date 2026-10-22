@@ -46,6 +46,8 @@ The 0.37 spec for this component held no file-existence check, so none is retire
 
 "The judge labels only a row nobody labelled" and "an agent label never touches a human or judge column" are the two halves of one rule. Three labellers write three column sets. The label of a row is the later of the human and the agent, else the judge. The owner gave 55 labels and stopped. That set is the calibration the judge is measured against, and it survives only if nothing else writes `verdict`. An agent's ruling lives in its own columns with a required note, so the judge against the human and the agent against both stay separate counts.
 
+"The judge reads a source whole unless the row overflows the budget". The answerer reads every source whole. The judge once read the first 1,200 characters of each, and on the real log that cut 78 of 588 sources across 38 of 73 judged rows; on every arbitrated row the cited fact sat past the cut, so the judge called present text absent. One budget per row, `RECALL_JUDGE_SOURCE_CHARS`, replaces the cap. `fit` water-fills it: a source that fits an equal share of what is left keeps every character, and only the longest sources lose their tail, marked as cut. At the default of 40,000 characters one row of 73 is cut and the densest prompt is 21,207 tokens on a 32k model. Rejudging all 73 rows moved agreement with the human labels from 39 to 43 of 53.
+
 ### Source adapters
 
 `recall ingest` needs no configuration because detection lives in the adapter, not in a config file. To drop a file under `data/` is the whole setup. A new source is one small class that registers itself.

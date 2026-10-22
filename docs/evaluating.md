@@ -68,6 +68,18 @@ and renumbering them makes every grounding judgment wrong.
 own output shows self-preference bias. `RECALL_JUDGE_MODEL` defaults to the
 answering model only because recall does not choose your models for you.
 
+**The judge reads whole sources.** The answerer reads every source whole,
+so the judge must too, or it grades a different document. One budget
+covers the sources of a row, `RECALL_JUDGE_SOURCE_CHARS`, 40,000 characters
+by default. When the total overflows it, only the longest sources lose
+their tail, marked `[truncated]`, and the shorter ones keep every
+character. Size the budget to the judge model's context: on a 32k model
+the default held the densest logged row at 21,207 tokens. Before this, a
+cap of 1,200 characters per source cut 78 of 588 sources across 38 of 73
+judged rows, and on every row an arbiter read, the cited fact sat past the
+cut. The judge called present text absent and graded an answer the
+answerer had read in full.
+
 **One rule runs before the model.** An answer that cites nothing and does
 not decline is not grounded, and no model is asked: a claim with no
 citation cannot trace to a source, whatever a model says. A decline is the
