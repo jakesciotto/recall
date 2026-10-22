@@ -28,6 +28,8 @@ The 0.37 spec for this component held no file-existence check, so none is retire
 
 "No hits forbids an answer" is the product. The prompt builder tells the model not to answer from its own knowledge when retrieval returned nothing, because a model asked to answer from no sources answers from itself.
 
+"A whole decline is graded by the reference, not by the model". Eleven of forty labelled rows were whole declines graded correct because the answer identified a gap in the sources, and the rule as a prompt sentence changed none of them. The model reports whether the answer declined the whole question. The eval author states whether a decline is the correct answer, as a marker under the reference. Code grades a whole decline from the two. A part decline keeps the model's grade.
+
 "A restarted server loses nothing" and "a dead server stops the run" are the two halves of one lesson. A restarted embedding server and an oversized request both answer HTTP 502. A client that shrinks on every failure splits a batch down to single items against a dead server and blames each one. `embed_safe` checks health first, waits out a restart, retries the same batch, and stops the run when the server never comes back. It does not drop the corpus one item at a time.
 
 "A re-ingest writes only what changed" makes a twelve hour ingest resumable. The digest of each chunk's text decides pending against stored, and a chunk the source stopped producing stays where it is.

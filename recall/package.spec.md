@@ -217,3 +217,9 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   checklist: encrypted-storage dismissed: the token lives in the environment, and recall stores no credential
   checklist: key-rotation-compatibility dismissed: nothing encrypted is retained
   checklist: separation-of-duties dismissed: one owner holds the one token, and no approval policy exists
+- a whole decline is graded by the reference, not by the model: A reply that declines the whole question is graded from the eval author's decline marker, whatever the model graded.
+  over: one reply graded yes by the model and read as a whole decline, against a reference marked as expecting no decline
+  via: test_a_whole_decline_against_a_named_answer_is_no
+  because: Eleven of forty labelled rows were whole declines graded correct because the answer identified a gap in the sources, and the rule as a prompt sentence changed none of them. The model reports whether the answer declined the whole question; the eval author states whether a decline is the correct answer, as a marker under the reference; code grades a whole decline from the two. A part decline keeps the model's grade.
+  refuted: grade_decline returns its input unchanged -> the test test_a_whole_decline_against_a_named_answer_is_no went red (2026-10-22)
+  kinds: none
