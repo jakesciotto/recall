@@ -1,5 +1,5 @@
 {
   "devDependencies": {
-    "@danilocampos/coherence": "^0.37.1"
+    "@posthog/coherence": "^1.8.0"
   }
 }
