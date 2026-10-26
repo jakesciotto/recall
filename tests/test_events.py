@@ -2,6 +2,7 @@
 
 import contextlib
 import unittest
+from unittest import mock
 
 from recall import db
 
@@ -400,7 +401,14 @@ class TestMailEvents(unittest.TestCase):
         self.assertNotIn("8", threads)
 
     def test_the_chunk_output_did_not_move(self):
-        out = list(self.src.chunks(self.path, 2000, {"ada@example.org": "Ada"}))
+        """Pinned under the zone the capture ran in. chunks() reads the
+        zone from the environment, and a runner with no RECALL_TZ writes
+        a different rollup header."""
+        from zoneinfo import ZoneInfo
+        from recall import trends
+        with mock.patch.object(trends, "zone",
+                               return_value=ZoneInfo("America/Denver")):
+            out = list(self.src.chunks(self.path, 2000, {"ada@example.org": "Ada"}))
         self.assertEqual([c.ref for c in out], ["email:trends:2018", "email:7"])
         self.assertEqual(digest(out), "6ea644147ec0b90ea36ae31e7cb08237")
 
