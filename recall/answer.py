@@ -83,25 +83,32 @@ def build_prompt(question, hits, label=None):
             "number. If the sources do not answer the question, say so.")
 
 
-def _request(prompt, model, stream):
-    body = json.dumps({
+def _request(prompt, model, stream, system=None, max_tokens=None):
+    body = {
         "model": model or config.CHAT_MODEL,
-        "messages": [{"role": "system", "content": system_prompt()},
+        "messages": [{"role": "system",
+                      "content": system_prompt() if system is None else system},
                      {"role": "user", "content": prompt}],
-        "temperature": 0.2,
+        "temperature": 0.2 if system is None else 0,
         "stream": stream,
-    }).encode()
-    return urllib.request.Request(config.CHAT_URL, body,
+    }
+    if max_tokens:
+        body["max_tokens"] = int(max_tokens)
+    return urllib.request.Request(config.CHAT_URL, json.dumps(body).encode(),
                                   {"Content-Type": "application/json"})
 
 
-def chat(prompt, model=None, timeout=600, meta=None):
+def chat(prompt, model=None, timeout=600, meta=None, system=None, max_tokens=None):
     """The answer text. `meta`, when given, receives what the server
     reported: the model it resolved to, the token counts, and the wall time.
     The query decision log records those, and the difference between the
-    model asked for and the model that answered is worth having."""
+    model asked for and the model that answered is worth having.
+
+    `system` replaces the answering prompt for a call that is not an
+    answer, such as the stats planner, and drops the temperature to 0."""
     started = time.monotonic()
-    with urllib.request.urlopen(_request(prompt, model, False), timeout=timeout) as r:
+    with urllib.request.urlopen(_request(prompt, model, False, system, max_tokens),
+                                timeout=timeout) as r:
         data = json.load(r)
     if meta is not None:
         usage = data.get("usage") or {}

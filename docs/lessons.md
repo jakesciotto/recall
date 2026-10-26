@@ -81,6 +81,17 @@ pytest failed at collection. A collection error proves nothing about the
 test. A refutation needs the named test to fail on its own assertion. The
 record lives under `## refutations` in `recall/package.spec.md`.
 
+**A hostile value that never reaches the boundary proves nothing about the
+boundary.** The first test of "a plan never reaches SQL as text" put a
+quote and a DROP statement in a contact's label and asked for that
+person. It stayed green with the binding removed, because a label never
+reaches SQL: only the handles it maps to do, and those were a phone
+number. The value that passes through `resolve` unchanged is a raw email
+address, so that is the hostile value now, and the staged break went red
+on it. Before trusting a boundary test, trace the test's own value to the
+boundary and check it arrives. The refutation recipe above catches this
+for free, which is the point of the recipe.
+
 ## Sizing
 
 **A character budget is a guess about tokens, and the guess is wrong.** The
@@ -343,6 +354,20 @@ functions that reach out, with a fixture that covers tests nobody has
 written yet. A test that wants the real thing says so with a marker. The
 fixture is itself tested, because a fixture nobody has seen fail is a
 fixture nobody can trust.
+
+**A retriever cannot count, so a count is a source.** "How many texts have
+I sent to one person over time" has no chunk that holds it: the yearly
+rollup names five contacts, and everyone else has no number anywhere. The
+answer is a structured store beside the chunks, one row per message, mail
+or DM, and a fixed catalogue of queries over it. The model fills a form,
+code runs the query, and the rendered table joins the prompt as a numbered
+source, so the citation rule needs no exception. Two things from the first
+load. The thread table is not optional: 167,507 of 231,066 sent messages in
+one export carry no handle at all, so "with whom" comes from chat
+membership. And 25,072 messages with a photo decode to nothing but U+FFFC,
+the object replacement character; a classifier that read the body as text
+called every one of them a text. Strip the placeholder before deciding what
+a message is. See docs/answering.md.
 
 ## Ingestion
 

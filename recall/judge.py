@@ -325,13 +325,20 @@ def unjudged(conn, limit, redo=False):
 def sources_for(conn, query_id):
     """The sources that reached the prompt, in the order the answer cited.
 
-    The log stores refs, and the text lives in chunk. This join is why both
-    tables share one database.
+    The log stores refs, and the text lives in chunk, or in computed for a
+    table the stats planner built. This join is why the tables share one
+    database, and the computed row is why the judge reads the same table
+    the answerer read.
     """
-    return db.fetch(conn, "SELECT qc.final_rank AS n, qc.ref, c.text, "
-                          "c.occurred_at, c.source, c.path "
-                          "FROM query_candidate qc JOIN chunk c ON c.ref = qc.ref "
+    return db.fetch(conn, "SELECT qc.final_rank AS n, qc.ref, "
+                          "coalesce(c.text, x.text) AS text, "
+                          "c.occurred_at, coalesce(c.source, x.source) AS source, "
+                          "c.path "
+                          "FROM query_candidate qc "
+                          "LEFT JOIN chunk c ON c.ref = qc.ref "
+                          "LEFT JOIN computed x ON x.ref = qc.ref "
                           "WHERE qc.query_id = %s AND qc.final_rank IS NOT NULL "
+                          "AND (c.ref IS NOT NULL OR x.ref IS NOT NULL) "
                           "ORDER BY qc.final_rank", [int(query_id)])
 
 

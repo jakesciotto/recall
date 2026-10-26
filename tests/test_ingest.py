@@ -126,6 +126,9 @@ class Store:
     def build_vector_index(self, conn):
         pass
 
+    def replace_events(self, conn, source, events, threads, aliases, clear=True):
+        return {"events": 0, "threads": 0, "aliases": len(list(aliases))}
+
 
 class Conn:
     def commit(self):

@@ -8,7 +8,7 @@ import json
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from . import answer, config, db, querylog, render, retrieve
+from . import answer, config, db, querylog, render, retrieve, stats
 
 MAX_K = 25
 
@@ -43,7 +43,7 @@ def _search(body, conn):
     except (TypeError, ValueError):
         k = 8
     from . import embed
-    hits, dates, trace = retrieve.search_traced(
+    hits, dates, trace = stats.gather(
         question, conn, lambda t: embed.embed([t])[0],
         k=k, source=body.get("source"))
     return question, k, hits, dates, trace

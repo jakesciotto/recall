@@ -95,6 +95,12 @@ populates them, a CHECK would fail a whole batch on one unexpected word,
 and the code normalises to a known set and writes `unknown` instead. One
 dead request becomes one `unknown` row, never a dead batch.
 
+A source the stats planner built is not a chunk. Its rendered table is
+stored in `computed` under the ref the answer cited, and that ref carries
+a digest of the text, so the judge and `recall show` read the table the
+answerer read, through the same join. The plan itself is in
+`query_log.plan`, with the planner's time in `plan_ms`.
+
 ## The review
 
 ```bash

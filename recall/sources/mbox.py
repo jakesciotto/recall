@@ -128,6 +128,9 @@ def _addr(sender):
 class Mbox(Source):
     name = "email"
 
+    def __init__(self):
+        self._cache = {}
+
     def detect(self, root):
         return sorted(p for p in walk(root)
                       if p.name.lower().endswith(".mbox") and p.is_file())
@@ -145,7 +148,14 @@ class Mbox(Source):
         return out[:8]
 
     def _kept(self, path):
-        """Messages that pass the allowlist, grouped by thread."""
+        """Messages that pass the allowlist, grouped by thread, cached per
+        path: the export can be gigabytes, and the chunks and the store
+        read one parse of it. A message with no readable body stays in
+        the list with an empty text, because it is still a message the
+        user received or sent."""
+        key = str(path)
+        if key in self._cache:
+            return self._cache[key]
         threads = {}
         with open(path, "rb") as fh:
             for n, raw in enumerate(raw_messages(fh)):
@@ -161,26 +171,62 @@ class Mbox(Source):
                 if labels and not (labels & KEEP_LABELS):
                     continue
                 body = strip_quoted(body_text(raw))
-                if not body:
-                    continue
                 tid = msg.get("X-GM-THRID") or msg.get("Message-ID") or f"n{n}"
                 threads.setdefault(tid, []).append({
                     "subject": _header(msg, "Subject"),
                     "sender": _addr(_header(msg, "From")),
+                    "to": sorted({a.lower() for h in ("To", "Cc")
+                                  for a in _ADDR.findall(_header(msg, h))}),
+                    "mid": (msg.get("Message-ID") or "").strip() or f"{tid}:{n}",
                     "at": _iso(msg),
                     "text": body,
                     # Gmail marks your own mail with the Sent label. Without
                     # this the user tops their own sender table.
                     "mine": "Sent" in labels,
                 })
+        self._cache[key] = threads
         return threads
+
+    def _with_text(self, path):
+        """The kept threads with their readable messages only."""
+        out = {}
+        for tid, msgs in self._kept(path).items():
+            msgs = [m for m in msgs if m["text"]]
+            if msgs:
+                out[tid] = msgs
+        return out
+
+    def events(self, path):
+        for tid, msgs in sorted(self._kept(path).items()):
+            for m in msgs:
+                if not m["at"]:
+                    continue
+                yield {"ref": f"mail:{m['mid']}", "at": m["at"],
+                       "thread": str(tid),
+                       "sender": "" if m["mine"] else m["sender"],
+                       "mine": m["mine"], "kind": "mail",
+                       "chars": len(m["text"])}
+
+    def threads(self, path):
+        """Members are every address on the thread but the user's own,
+        which are the From of every Sent message in the export."""
+        threads = self._kept(path)
+        own = {m["sender"] for msgs in threads.values() for m in msgs
+               if m["mine"] and m["sender"]}
+        for tid, msgs in sorted(threads.items()):
+            members = {m["sender"] for m in msgs if m["sender"]}
+            members |= {a for m in msgs for a in m["to"]}
+            first = min(msgs, key=lambda m: m["at"] or "")
+            others = sorted(members - own)
+            yield {"thread": str(tid), "name": first["subject"] or None,
+                   "members": others, "direct": len(others) == 1}
 
     def chunks(self, path, budget, contacts=None):
         from ..chunking import pack
         from ..naming import label
         from .. import trends
         contacts = contacts or {}
-        threads = self._kept(path)
+        threads = self._with_text(path)
         yield from trend_chunks(threads, contacts, budget, trends.zone())
         for tid, msgs in sorted(threads.items()):
             msgs.sort(key=lambda m: m["at"] or "")

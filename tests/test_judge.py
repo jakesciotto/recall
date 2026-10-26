@@ -304,6 +304,16 @@ class TestQueue(unittest.TestCase):
         self.assertIn("ORDER BY qc.final_rank", sql)
         self.assertIn("JOIN chunk", sql)
 
+    def test_a_computed_table_is_a_source_too(self):
+        """The stats planner's table is not a chunk. The judge must read it
+        from computed, or it grades an answer against sources it never saw."""
+        with mock.patch.object(db, "fetch", return_value=[]) as fetch:
+            judge.sources_for(Conn(), 7)
+        sql = fetch.call_args.args[1]
+        self.assertIn("LEFT JOIN computed x ON x.ref = qc.ref", sql)
+        self.assertIn("coalesce(c.text, x.text)", sql)
+        self.assertIn("c.ref IS NOT NULL OR x.ref IS NOT NULL", sql)
+
 
 class TestRun(unittest.TestCase):
     def test_dry_run_judges_and_writes_nothing(self):

@@ -7,7 +7,7 @@ from unittest import mock
 from recall import captions, cli
 
 VERBS = ("doctor", "ingest", "caption", "ask", "eval", "judge", "review",
-         "serve", "label", "show", "report")
+         "serve", "label", "show", "report", "stats")
 
 
 class TestEveryVerbDispatches(unittest.TestCase):
@@ -18,7 +18,7 @@ class TestEveryVerbDispatches(unittest.TestCase):
         for argv in (["doctor"], ["ingest"], ["caption"], ["ask", "q"],
                      ["eval", "f"], ["judge"], ["review"], ["serve"],
                      ["label", "7", "good", "--by", "a", "--note", "n"],
-                     ["show", "7"], ["report"]):
+                     ["show", "7"], ["report"], ["stats", "count"]):
             with self.subTest(verb=argv[0]):
                 seen = []
                 with contextlib.ExitStack() as stack:
@@ -206,3 +206,49 @@ class TestReportCommand(unittest.TestCase):
         self.assertEqual(data["summary"]["open"], 1)
         self.assertEqual([d["id"] for d in data["disagreements"]], [1])
         self.assertEqual(data["disagreements"][0]["question"], "who raced")
+
+
+class TestStatsCommand(unittest.TestCase):
+    def run_stats(self, argv, result=None):
+        from recall import stats
+        seen = {}
+
+        @contextlib.contextmanager
+        def conn():
+            yield object()
+
+        def run(c, call, labels, tz):
+            seen["call"] = call
+            return {"call": stats.validate(call), "label": None, "handles": [],
+                    "candidates": [], "rows": [], "first": None, "last": None,
+                    "streak": (0, None, None), "gap": (0, None, None),
+                    "excluded": 0}
+        out = io.StringIO()
+        with mock.patch.object(cli, "_embedder", lambda: None), \
+             mock.patch("recall.db.connect", conn), \
+             mock.patch("recall.db.apply_schema", lambda c: None), \
+             mock.patch.object(stats, "labels", lambda c, s: {}), \
+             mock.patch.object(stats, "run", run), \
+             contextlib.redirect_stdout(out):
+            code = cli.main(argv)
+        return code, seen.get("call"), out.getvalue()
+
+    def test_count_passes_the_person_and_the_period(self):
+        code, call, out = self.run_stats(
+            ["stats", "count", "--with", "Ada", "--by", "month", "--source", "email"])
+        self.assertEqual(code, 0)
+        self.assertEqual(call, {"metric": "count", "source": "email",
+                                "with": "Ada", "by": "month"})
+        self.assertIn("[stats: count, email with", out)
+
+    def test_top_passes_year_direction_and_n(self):
+        code, call, _ = self.run_stats(
+            ["stats", "top", "--year", "2019", "--direction", "sent", "-n", "3"])
+        self.assertEqual(code, 0)
+        self.assertEqual(call, {"metric": "top", "source": "messages",
+                                "year": 2019, "direction": "sent", "n": 3})
+
+    def test_a_call_outside_the_catalogue_exits_two_before_the_database(self):
+        code, call, _ = self.run_stats(["stats", "top", "-n", "999"])
+        self.assertEqual(code, 2)
+        self.assertIsNone(call)

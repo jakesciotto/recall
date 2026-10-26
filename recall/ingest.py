@@ -6,10 +6,11 @@ vector index is built last so the load does not pay index maintenance.
 
 import collections
 import hashlib
+import itertools
 import sys
 
 from . import (captions, chunking, config, contacts as contacts_mod, db,
-               embed as embedding)
+               embed as embedding, stats)
 from .sources import detect_all
 
 Work = collections.namedtuple("Work", "pending new updated")
@@ -77,6 +78,33 @@ def _row(chunk):
             clean(d.get("thread")), clean(d.get("path")), None)
 
 
+def _peek(rows):
+    """(empty, rows) without losing the first row of a generator."""
+    rows = iter(rows)
+    first = next(rows, None)
+    if first is None:
+        return True, iter(())
+    return False, itertools.chain([first], rows)
+
+
+def store(adapter, path, conn, cleared, log):
+    """Load one folder's events into the structured store. The first
+    folder of a source in a run replaces the source's rows; a later folder
+    of the same source adds to them. Returns the counts, or None when the
+    adapter yields nothing for the store."""
+    no_events, events = _peek(adapter.events(path))
+    no_threads, threads = _peek(adapter.threads(path))
+    if no_events and no_threads:
+        return None
+    counts = db.replace_events(conn, adapter.name, events, threads,
+                               adapter.aliases(path),
+                               clear=adapter.name not in cleared)
+    cleared.add(adapter.name)
+    log(f"[{adapter.name}] store: {counts['events']:,} events, "
+        f"{counts['threads']:,} threads")
+    return counts
+
+
 def run(root, conn, log=print, batch_cap=64, reindex=True):
     """Ingest everything found under `root`. Returns a per-source summary."""
     db.apply_schema(conn)
@@ -88,6 +116,10 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
     contacts = contacts_mod.load_all(root)
     if contacts:
         log(f"{len(contacts):,} contacts loaded; participants will show names")
+        # The same map, stored, so a question at the terminal or over the
+        # API resolves a name without walking the data directory.
+        db.replace_events(conn, stats.CONTACTS, [], [],
+                          [{"handle": h, "label": n} for h, n in contacts.items()])
 
     found = detect_all(root)
     if not found:
@@ -96,6 +128,7 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
     log("found: " + ", ".join(f"{a.name} ({p.name})" for a, p in found))
 
     summary = {}
+    cleared = set()
     for adapter, path in found:
         # One adapter can own many folders (a Takeout export has one per
         # product), so the counts add up per name instead of replacing.
@@ -109,6 +142,13 @@ def run(root, conn, log=print, batch_cap=64, reindex=True):
                     f"no caption yet; run: recall caption")
         budget = chunking.calibrate(adapter.samples(path))
         log(f"[{adapter.name}] budget {budget:,} chars per chunk")
+
+        # The store first: it costs seconds, and it is replaced even when
+        # the embedding server fails later in the run.
+        held = store(adapter, path, conn, cleared, log)
+        if held:
+            for key in ("events", "threads"):
+                counts[key] = counts.get(key, 0) + held[key]
 
         work = changed(adapter.chunks(path, budget, contacts), stored)
         log(f"[{adapter.name}] {work.new:,} new, {work.updated:,} rewritten")
