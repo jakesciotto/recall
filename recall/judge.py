@@ -26,10 +26,13 @@ import re
 
 from . import answer, config, db, render
 
-# Eight sources at 8,000 characters is a 64,000 character prompt. The judge
-# is told the text is cut, because a judge that does not know will call a
-# grounded answer ungrounded.
-MAX_SOURCE_CHARS = 1_200
+# The answerer reads every source whole, so the judge must too, or it
+# grades a different document. One budget, config.JUDGE_SOURCE_CHARS, covers
+# the sources of a row and only the longest lose their tail. A cap of 1,200
+# characters per source cut 78 of 588 sources on the real log, and the cited
+# fact sat past the cut on every arbitrated row. The judge is told when text
+# is cut, because a judge that does not know calls a grounded answer
+# ungrounded.
 MAX_ANSWER_CHARS = 6_000
 MAX_NOTE_CHARS = 500
 
@@ -127,7 +130,27 @@ def _clip(text, limit):
     text = text or ""
     if len(text) <= limit:
         return text
-    return text[:max(0, limit - len(_TRUNCATED))] + _TRUNCATED
+    if limit <= len(_TRUNCATED):
+        return text[:limit]
+    return text[:limit - len(_TRUNCATED)] + _TRUNCATED
+
+
+def fit(lengths, budget):
+    """A limit per source that together stay inside the budget.
+
+    Water filling: a source that fits in an equal share of what is left
+    keeps every character, and the share it leaves unused goes to the
+    longer ones. Only the longest sources are cut, all to one level, and
+    nothing that fits is wasted.
+    """
+    limits = list(lengths)
+    left = budget
+    order = sorted(range(len(lengths)), key=lambda i: lengths[i])
+    for done, i in enumerate(order):
+        share = left // (len(order) - done)
+        limits[i] = min(lengths[i], share)
+        left -= limits[i]
+    return limits
 
 
 def build_prompt(row, sources, label=None):
@@ -144,13 +167,15 @@ def build_prompt(row, sources, label=None):
                     .replace("{correct_field}", CORRECT_FIELD if expected else "")
                     .replace("{correct_rule}", CORRECT_RULE if expected else ""))
     reference = f"Reference: {expected}\n\n" if expected else ""
+    texts = [answer.speaker_labels(s.get("text"), label) or ""
+             for s in sources]
+    limits = fit([len(t) for t in texts], config.JUDGE_SOURCE_CHARS)
     blocks = []
-    for s in sources:
+    for s, text, limit in zip(sources, texts, limits):
         where = s.get("path") or s.get("ref")
         day = (s.get("occurred_at") or "undated")[:10]
-        text = answer.speaker_labels(s.get("text"), label)
         blocks.append(f"[{s['n']}] {where} ({day}, {s.get('source')})\n"
-                      f"{_clip(text, MAX_SOURCE_CHARS)}")
+                      f"{_clip(text, limit)}")
     text = row.get("answer") or "(the system produced no answer)"
     return (instructions + "\n\n"
             f"Question: {row.get('question')}\n\n" + reference +

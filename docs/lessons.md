@@ -467,6 +467,29 @@ regex also matches a partial answer that gives the fact. Do not write "by
 definition" about a model, and simulate a rule over the labelled rows
 before it ships.
 
+**A judge that reads a clip grades a different document than the
+answerer read.** The answerer took every source whole. The judge took the
+first 1,200 characters of each, with a marker where the text stopped and
+an instruction that a cut source is not a missing one. The instruction did
+not hold. On four of the fourteen rows an agent arbitrated, the judge
+called present text absent, and the fact sat past the cut on every one: a
+seat number at character 4,956 of an email, an appointment line at 1,369.
+The cap had cut 78 of 588 sources across 38 of 73 judged rows since the
+judge was written, and nothing reported it, because a shorter prompt is
+not an error. The bound was right to want and wrong in shape: a cap per
+source cuts the long sources exactly where their evidence lives and leaves
+the budget unused on the short ones. One budget per row, filled from the
+shortest source up, cuts one row of 73 and holds the densest at 21,207
+tokens on a 32k model. Rejudging all 73 rows moved a judge field on 11 of
+the 38 rows that had been cut and on 4 of the 35 that had not, which is
+the run-to-run noise of the model, since those prompts did not change;
+agreement with the human labels went from 39 to 43 of 53. Two rules. Give
+the judge the bytes the answerer saw, and measure what a bound removes
+before trusting the sentence that explains it away. One more from the same
+run: `recall judge --redo` stopped at the default limit of 50 and reported
+"judged 50 rows" as success over a log of 73, so check a batch count
+against the population before reading any comparison.
+
 **A review queue for the owner is a design defect.** Every eval batch ended
 with "next: recall judge, then recall review", and the review walked the
 owner through every row. After 55 labels the owner said the point of the

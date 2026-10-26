@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest import mock
 
-from recall import db, judge
+from recall import config, db, judge
 
 
 class Cursor:
@@ -72,21 +72,90 @@ class TestBuildPrompt(unittest.TestCase):
         self.assertIn("Ada: great first race man", prompt)
         self.assertNotIn("me: great", prompt)
 
-    def test_a_long_source_is_cut_and_the_judge_is_told(self):
-        long = [dict(SOURCES[0], text="x" * 5000)]
+    def test_a_source_past_the_whole_budget_is_cut_and_the_judge_is_told(self):
+        long = [dict(SOURCES[0], text="x" * (config.JUDGE_SOURCE_CHARS + 1))]
         prompt = judge.build_prompt(ROW, long, label="")
         self.assertIn("[truncated]", prompt)
         self.assertIn("cut", judge.INSTRUCTIONS.lower())
 
     def test_the_marker_counts_against_the_limit(self):
         """Cutting to the limit and then appending overflows by exactly the
-        marker length, which only shows at certain input sizes."""
-        for n in (judge.MAX_SOURCE_CHARS - 1, judge.MAX_SOURCE_CHARS,
-                  judge.MAX_SOURCE_CHARS + 1, judge.MAX_SOURCE_CHARS + 30):
-            with self.subTest(chars=n):
-                self.assertLessEqual(len(judge._clip("x" * n,
-                                                     judge.MAX_SOURCE_CHARS)),
-                                     judge.MAX_SOURCE_CHARS)
+        marker length, which only shows at certain input sizes. A limit
+        shorter than the marker is the other edge: the marker alone would
+        overflow it."""
+        marker = len(judge._TRUNCATED)
+        for limit in (0, 1, marker - 1, marker, marker + 1, 1_200):
+            for n in (limit - 1, limit, limit + 1, limit + 30):
+                if n < 0:
+                    continue
+                with self.subTest(limit=limit, chars=n):
+                    self.assertLessEqual(len(judge._clip("x" * n, limit)),
+                                         limit)
+
+
+class TestTheBudgetIsShared(unittest.TestCase):
+    """The judge reads whole sources. One total budget covers the sources of
+    a row, and only the longest lose their tail when the total overflows.
+
+    A cap per source hid the evidence. On the real log 38 of 73 judged rows
+    had a source cut at 1,200 characters, 78 sources in all, and on every
+    arbitrated row the cited fact sat past the cut: a seat number at
+    character 4,956 of an email, an appointment line at 1,369. The judge
+    called present text absent, while the answerer had read it whole."""
+
+    def source(self, n, text):
+        return dict(SOURCES[0], n=n, ref=f"message:{n}", text=text)
+
+    def test_evidence_past_the_old_cap_reaches_the_judge(self):
+        text = "a" * 4_956 + " seat 4C " + "b" * 3_000
+        prompt = judge.build_prompt(ROW, [self.source(1, text)], label="")
+        self.assertIn("seat 4C", prompt)
+        self.assertNotIn("[truncated]", prompt)
+
+    def test_sources_inside_the_budget_are_whole(self):
+        texts = [f"{n} " + "w" * 4_990 for n in range(8)]
+        srcs = [self.source(n + 1, t) for n, t in enumerate(texts)]
+        prompt = judge.build_prompt(ROW, srcs, label="")
+        self.assertNotIn("[truncated]", prompt)
+        for t in texts:
+            self.assertIn(t, prompt)
+
+    def test_only_the_longest_sources_lose_their_tail(self):
+        short, long = "s" * 500, "l" * 30_000
+        srcs = [self.source(1, short), self.source(2, long),
+                self.source(3, short), self.source(4, long)]
+        with mock.patch.object(config, "JUDGE_SOURCE_CHARS", 40_000):
+            prompt = judge.build_prompt(ROW, srcs, label="")
+            empty = judge.build_prompt(ROW, [dict(s, text="") for s in srcs],
+                                       label="")
+        self.assertEqual(prompt.count("[truncated]"), 2)
+        self.assertEqual(prompt.count("\n" + short + "\n"), 2)
+        self.assertNotIn(long, prompt)
+        self.assertLessEqual(len(prompt) - len(empty), 40_000)
+
+    def test_the_fill_takes_exactly_what_fits(self):
+        """Sweep the budget: the limits never exceed the lengths or the
+        budget, and together they take everything that fits."""
+        lengths = [3, 10, 100, 7, 0]
+        for budget in range(0, sum(lengths) + 5):
+            with self.subTest(budget=budget):
+                limits = judge.fit(lengths, budget)
+                self.assertEqual(len(limits), len(lengths))
+                for limit, n in zip(limits, lengths):
+                    self.assertLessEqual(limit, n)
+                self.assertEqual(sum(limits), min(budget, sum(lengths)))
+                if sum(lengths) <= budget:
+                    self.assertEqual(limits, lengths)
+
+    def test_short_sources_keep_every_character(self):
+        self.assertEqual(judge.fit([5, 50, 50], 65), [5, 30, 30])
+        self.assertEqual(judge.fit([50, 5, 50], 65), [30, 5, 30])
+
+    def test_the_budget_is_an_env_knob(self):
+        with mock.patch.object(config, "JUDGE_SOURCE_CHARS", 100):
+            prompt = judge.build_prompt(ROW, [self.source(1, "x" * 150)],
+                                        label="")
+        self.assertIn("[truncated]", prompt)
 
     def test_a_missing_answer_is_named_as_such(self):
         prompt = judge.build_prompt(dict(ROW, answer=None), SOURCES, label="")

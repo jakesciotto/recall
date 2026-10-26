@@ -244,3 +244,9 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   checklist: durable-dispatch-intent dismissed: the write dispatches nothing
   checklist: declared-target-coverage dismissed: the UPDATE names one row by id
   checklist: completion-evidence dismissed: the commit is the completion, and the test counts it
+- the judge reads a source whole unless the row overflows the budget: The sources of a row reach the judge whole, and only when their total exceeds the budget do the longest lose their tail.
+  over: one source of 8,000 characters with the cited fact at character 4,956, built into the judge prompt at the default budget
+  via: test_evidence_past_the_old_cap_reaches_the_judge
+  because: the answerer reads every source whole, and a cap of 1,200 characters per source cut 78 of 588 sources on the real log, so the judge called present text absent on every arbitrated row
+  refuted: build_prompt caps every limit at 1,200 after fit, the old per-source cut -> the test test_evidence_past_the_old_cap_reaches_the_judge went red (2026-10-22)
+  kinds: none
