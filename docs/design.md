@@ -48,6 +48,12 @@ The 0.37 spec for this component held no file-existence check, so none is retire
 
 "The judge reads a source whole unless the row overflows the budget". The answerer reads every source whole. The judge once read the first 1,200 characters of each, and on the real log that cut 78 of 588 sources across 38 of 73 judged rows; on every arbitrated row the cited fact sat past the cut, so the judge called present text absent. One budget per row, `RECALL_JUDGE_SOURCE_CHARS`, replaces the cap. `fit` water-fills it: a source that fits an equal share of what is left keeps every character, and only the longest sources lose their tail, marked as cut. At the default of 40,000 characters one row of 73 is cut and the densest prompt is 21,207 tokens on a 32k model. Rejudging all 73 rows moved agreement with the human labels from 39 to 43 of 53.
 
+"A plan never reaches SQL as text" and "an invalid plan runs nothing" are the two halves of one rule for the structured store. A retriever cannot count, so `recall ingest` fills a store of one row per message, and `recall ask` lets a model fill a small form from a fixed catalogue. The model's answer is the one input on the answer path that nobody wrote, so it fails closed at `validate`, and every value it carries reaches Postgres as a bound parameter. The rendered table is a numbered source like any chunk, so the citation rule needs no exception.
+
+"A planner that raises never costs the answer". The planner is a model call, and a model call fails. The table is an extra; the ask runs as it always did and the log records the error.
+
+"The judge reads the table the answerer read". The ref of a stats source carries a digest of its rendered text, and the text is stored under that ref. A table that could change between the ask and the judgment is the clipped-source fault one layer up.
+
 ### Source adapters
 
 `recall ingest` needs no configuration because detection lives in the adapter, not in a config file. To drop a file under `data/` is the whole setup. A new source is one small class that registers itself.
@@ -59,5 +65,7 @@ Mail is filtered on purpose. Promotions and noise labels are dropped, receipts s
 The 0.37 spec checked that `recall/sources/base.py` exists. That check is retired, because a file-existence check proves no behavior.
 
 The mbox filter test re-implements the keep predicate. It does not call the `_kept` filter, so a change in `_kept` can pass the test. The work order lists this gap.
+
+"One event per message". A message joined to two chats is one row in the store, as it is one window in the index. The first chat by guid keeps it, so the choice does not move between runs.
 
 Medical data stays a deliberate choice. The health adapter opens `export.xml` only, and it never reads the FHIR clinical records in the same export.

@@ -28,7 +28,7 @@ COLUMNS = (
     "fused_n", "model_requested", "model_resolved", "answer", "cited",
     "cited_invalid", "prompt_chars", "prompt_tokens", "completion_tokens",
     "embed_ms", "dense_ms", "sparse_ms", "generate_ms", "first_token_ms",
-    "total_ms", "error", "expected", "expected_decline",
+    "total_ms", "error", "expected", "expected_decline", "plan", "plan_ms",
 )
 
 CANDIDATE_COLUMNS = (
@@ -157,6 +157,8 @@ def log_query(conn, *, client, question, k, pool, source, dates, trace, hits,
             "error": error,
             "expected": expected,
             "expected_decline": expected_decline,
+            "plan": trace.get("plan"),
+            "plan_ms": trace.get("plan_ms"),
         }
         candidates = candidates_from(trace, hits, valid)
     except Exception:

@@ -21,7 +21,7 @@ import datetime as dt
 import re
 import time
 
-from . import answer, config, db, judge, querylog, retrieve
+from . import answer, config, db, judge, querylog, retrieve, stats
 
 _NUMBERED = re.compile(r"^\s*\d+\.\s+(.+?)\s*$")
 _EXPECT = re.compile(r"^\s*expect:\s*(.+?)\s*$", re.I)
@@ -65,8 +65,8 @@ def ask_one(question, embedder, k=retrieve.TOP_K, expected=None,
     """
     started = time.monotonic()
     with db.connect() as conn:
-        hits, dates, trace = retrieve.search_traced(question, conn, embedder,
-                                                    k=k, today=dt.date.today())
+        hits, dates, trace = stats.gather(question, conn, embedder, k=k,
+                                          today=dt.date.today())
     prompt = answer.build_prompt(question, hits)
     text, meta, error = None, {}, None
     if config.CHAT_URL:

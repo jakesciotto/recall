@@ -181,6 +181,22 @@ class Journal(Source):
 
 Add it to `ADAPTERS` in `recall/sources/__init__.py`. Nothing else changes.
 
+An adapter whose records are messages can also fill the structured store,
+so "how many" questions get an exact answer (see
+[answering.md](answering.md)). Implement `events(path)`, yielding one
+`{ref, at, thread, sender, mine, kind, chars}` per message with `sender`
+empty for the user's own, and `threads(path)`, yielding one
+`{thread, name, members}` per conversation with `members` the raw
+identifiers of everyone but the user. `aliases(path)` yields
+`{handle, label}` for identifiers the export names itself, as a Twitter
+archive names account ids. Parse the export once and cache the parse:
+the ingest calls `chunks` and then these three on the same path, and a
+mail export can be gigabytes. An event may carry a `source` of its own
+when it belongs beside the adapter's rows rather than among them: the
+Twitter adapter yields DMs under `twitter` and tweets under `tweets`,
+because a tweet has no other side and "how many DMs" must not count it.
+The messages, mail and Twitter adapters are the examples.
+
 An adapter with images implements `media(path)`, yielding the files for
 `recall caption` to describe. Read the records back in `chunks` through
 `recall.captions.read_record` and the hash cache's `known`, never by

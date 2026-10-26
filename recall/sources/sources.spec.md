@@ -45,3 +45,11 @@ Each adapter answers two questions for itself: is my data in here, and what chun
   kinds: read
   checklist: scoped-reads dismissed: one owner, and no scope beyond the optional source filter
   checklist: redaction dismissed: a kept message is stored whole for its owner
+- one event per message: The messages adapter yields one event per message row, and a message joined to two chats keeps the first chat by guid.
+  over: a fixture chat.db of nine messages, one of them joined to both chats
+  via: test_one_event_per_message_even_when_joined_to_two_chats
+  because: a message in two chats once rewrote one chunk on every ingest, and in the store it would count twice
+  kinds: identity
+  checklist: capability-authorization dismissed: an event ref authorizes nothing
+  checklist: canonical-encoding dismissed: a ref is built from the row id, with no normalization
+  checklist: identity-continuity dismissed: a ref is not an identity chain

@@ -81,3 +81,21 @@ class Source:
         contacts update.
         """
         raise NotImplementedError
+
+    # The structured store, for the questions a retriever cannot count.
+    # Most sources have none. A source that has them yields one event per
+    # message, one thread per conversation with its members, and an alias
+    # for every identifier the export itself names. See docs/sources.md.
+    def events(self, path):
+        """{ref, at, thread, sender, mine, kind, chars} per message."""
+        return []
+
+    def threads(self, path):
+        """{thread, name, members, direct} per conversation, members being
+        the raw identifiers of everyone but the user, and direct what the
+        export says a one-to-one conversation is."""
+        return []
+
+    def aliases(self, path):
+        """{handle, label} for identifiers the export names itself."""
+        return []

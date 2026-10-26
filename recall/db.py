@@ -120,6 +120,57 @@ ALTER TABLE query_log ADD COLUMN IF NOT EXISTS agent_verdict text;
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS agent_note text;
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS agent_name text;
 ALTER TABLE query_log ADD COLUMN IF NOT EXISTS agent_at timestamptz;
+-- What the stats planner asked of the structured store, as JSON: the
+-- calls, the model's raw answer, and any error. NULL when the planner
+-- made no call and met no error. plan_ms is the planner's own time.
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS plan text;
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS plan_ms int;
+"""
+
+# The structured store: one row per message beside the chunks, so a count
+# is a query and not a guess. The store is replaced per source on every
+# ingest, because a count must match the export, where a chunk keeps its
+# stale ref on purpose. `computed` holds every table an answer cited,
+# under the ref the answer cited, so the judge reads what the model read.
+STATS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS event (
+  source      text NOT NULL,
+  ref         text NOT NULL,
+  occurred_at timestamptz NOT NULL,
+  thread      text,
+  sender      text NOT NULL DEFAULT '',
+  mine        boolean NOT NULL,
+  kind        text NOT NULL,
+  chars       int NOT NULL DEFAULT 0,
+  PRIMARY KEY (source, ref)
+);
+CREATE INDEX IF NOT EXISTS event_thread_idx ON event (source, thread, occurred_at);
+CREATE INDEX IF NOT EXISTS event_at_idx     ON event (source, occurred_at);
+
+CREATE TABLE IF NOT EXISTS thread (
+  source  text NOT NULL,
+  thread  text NOT NULL,
+  name    text,
+  members text[] NOT NULL DEFAULT '{}',
+  direct  boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (source, thread)
+);
+ALTER TABLE thread ADD COLUMN IF NOT EXISTS direct boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS thread_members_idx ON thread USING gin (members);
+
+CREATE TABLE IF NOT EXISTS alias (
+  source text NOT NULL,
+  handle text NOT NULL,
+  label  text NOT NULL,
+  PRIMARY KEY (source, handle)
+);
+
+CREATE TABLE IF NOT EXISTS computed (
+  ref         text PRIMARY KEY,
+  text        text NOT NULL,
+  source      text NOT NULL,
+  computed_at timestamptz NOT NULL DEFAULT now()
+);
 """
 
 VECTOR_INDEX = ("CREATE INDEX IF NOT EXISTS chunk_embedding_idx ON chunk "
@@ -153,6 +204,7 @@ def apply_schema(conn, dims=None):
     with conn.cursor() as cur:
         cur.execute(SCHEMA % {"dims": dims or config.EMBED_DIMS})
         cur.execute(LOG_SCHEMA)
+        cur.execute(STATS_SCHEMA)
 
 
 def build_vector_index(conn):
@@ -181,9 +233,78 @@ def upsert(conn, rows):
         cur.executemany(UPSERT, rows)
 
 
+_LOADS = (
+    ("events", "event",
+     ("source", "ref", "occurred_at", "thread", "sender", "mine", "kind", "chars"),
+     lambda s, r: (s, r["ref"], r["at"], r.get("thread"), r.get("sender") or "",
+                   bool(r["mine"]), r["kind"], int(r.get("chars") or 0))),
+    ("threads", "thread", ("source", "thread", "name", "members", "direct"),
+     lambda s, r: (s, r["thread"], r.get("name"), list(r.get("members") or []),
+                   bool(r.get("direct")))),
+    ("aliases", "alias", ("source", "handle", "label"),
+     lambda s, r: (s, r["handle"], r["label"])),
+)
+
+
+def replace_events(conn, source, events, threads, aliases, clear=True):
+    """Replace one source's rows in the structured store. Returns counts.
+
+    Every row set is copied into a temporary table first, the source's
+    rows are deleted, and the copies are inserted, all in one transaction.
+    A reader never sees an empty store, and a duplicate ref inside one
+    export lands once instead of ending the load. `clear` is False for
+    the second file of a source that owns several, so the first file's
+    rows survive.
+    """
+    counts = {}
+    try:
+        with conn.cursor() as cur:
+            for (key, table, cols, row), rows in zip(
+                    _LOADS, (events, threads, aliases)):
+                cur.execute(f"CREATE TEMP TABLE {table}_in (LIKE {table}) "
+                            f"ON COMMIT DROP")
+                n = 0
+                with cur.copy(f"COPY {table}_in ({', '.join(cols)}) "
+                              f"FROM STDIN") as copy:
+                    for r in rows:
+                        copy.write_row(row(source, r))
+                        n += 1
+                counts[key] = n
+            for key, table, cols, row in _LOADS:
+                if clear:
+                    cur.execute(f"DELETE FROM {table} WHERE source = %s", [source])
+                cur.execute(f"INSERT INTO {table} SELECT * FROM {table}_in "
+                            f"ON CONFLICT DO NOTHING")
+                # The rows that landed, not the rows yielded: a conversation
+                # id that two export files share lands once.
+                if isinstance(getattr(cur, "rowcount", None), int) and cur.rowcount >= 0:
+                    counts[key] = cur.rowcount
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return counts
+
+
+def save_computed(conn, ref, text, source):
+    """Keep a table an answer cited, under the ref it cited."""
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO computed (ref, text, source) VALUES (%s, %s, %s) "
+                    "ON CONFLICT (ref) DO UPDATE SET text = EXCLUDED.text, "
+                    "source = EXCLUDED.source, computed_at = now()",
+                    [ref, text, source])
+    conn.commit()
+
+
 def counts(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT source, count(*) FROM chunk GROUP BY 1 ORDER BY 2 DESC")
+        return cur.fetchall()
+
+
+def event_counts(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT source, count(*) FROM event GROUP BY 1 ORDER BY 2 DESC")
         return cur.fetchall()
 
 

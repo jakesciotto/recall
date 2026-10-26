@@ -28,6 +28,7 @@ recall doctor                 # says exactly what is missing, if anything
 recall ingest                 # finds what you dropped in and indexes it
 recall caption                # optional: describes image attachments through a vision model
 recall ask "when did I last see the dentist"
+recall stats count --with "Ada" --by year     # exact counts, no model
 ```
 
 `recall doctor` is the one to run when anything looks wrong. It checks every
@@ -78,6 +79,14 @@ because its absence broke a real run. They are written up in
 - **Every answer cites its sources**, and an empty retrieval is forbidden
   from answering at all. An uncitable answer about your own life is
   indistinguishable from an invented one.
+- **A count is a source, not a guess.** "How many texts have I sent to
+  Ada over time" cannot be answered from eight retrieved chunks, and a
+  model that tries over-claims. `recall ingest` also fills a structured
+  store, one row per message, mail or DM. `recall stats` queries it at
+  the terminal, and `recall ask` lets the model fill a small form from a
+  fixed catalogue; the resulting table joins the prompt as a numbered
+  source. Code owns every query and binds every argument. See
+  [docs/answering.md](docs/answering.md).
 - **Re-runs are cheap.** Identity is stable, so re-ingesting costs only what
   actually changed. A failed twelve hour run resumes instead of restarting.
 - **People have names.** Drop in a vCard and participants stop being phone

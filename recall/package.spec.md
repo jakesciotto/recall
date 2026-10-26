@@ -250,3 +250,27 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   because: the answerer reads every source whole, and a cap of 1,200 characters per source cut 78 of 588 sources on the real log, so the judge called present text absent on every arbitrated row
   refuted: build_prompt caps every limit at 1,200 after fit, the old per-source cut -> the test test_evidence_past_the_old_cap_reaches_the_judge went red (2026-10-22)
   kinds: none
+- a plan never reaches SQL as text: Every stats query binds the person and every other argument as a parameter.
+  over: a count call whose with value is a raw email address holding a quote and a DROP statement, run through a connection that records every statement
+  via: test_the_person_is_bound_never_interpolated
+  because: the planner is a model and the question arrives over HTTP, so a value written into the SQL text would run what the client or the model wrote
+  crossing: owner -> store
+  entrances: none
+  kinds: read
+  checklist: scoped-reads dismissed: one owner, and no scope beyond the source the call names
+  checklist: redaction dismissed: the bearer holder is the owner of the archive, and the table shows the owner their own counts
+- an invalid plan runs nothing: A call with a metric, a key or a value outside the catalogue is dropped before any query runs.
+  over: eleven calls outside the catalogue, each validated and each run against a connection that records every statement
+  via: test_an_invalid_call_runs_nothing
+  because: the planner is a model, and a model's answer must fail closed at the one place every call passes through
+  kinds: none
+- a planner that raises never costs the answer: An ask whose planner raises returns the retrieved sources as if no plan was asked.
+  over: one gather whose planner raises
+  via: test_a_planner_that_raises_never_costs_the_answer
+  because: the planner is a model call on the answer path, and a model call fails; the table is an extra, never a dependency
+  kinds: none
+- the judge reads the table the answerer read: A stats source is stored under a ref that carries the digest of its rendered text.
+  over: one count call rendered through hit, with the statements it writes recorded
+  via: test_it_renders_saves_and_returns_a_source
+  because: the judge once graded a clipped source and called present text absent, and a table that can change between the ask and the judgment is the same fault one layer up
+  kinds: none

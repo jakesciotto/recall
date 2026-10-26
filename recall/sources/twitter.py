@@ -156,6 +156,51 @@ class Twitter(Source):
                                 trends.zone())
         yield from self._media_chunks(path, tweets, convos, me, budget)
 
+    def events(self, path):
+        """DMs under this adapter's name, and every tweet under the source
+        `tweets`: a tweet has no other side, so mixing the two would make
+        "how many DMs" count tweets."""
+        tweets, convos, me = self._export(path)
+        for r in dm_records(convos, {}, me):
+            yield {"ref": f"dm:{r['rowid']}", "at": _iso(r["at"]),
+                   "thread": r["thread"],
+                   "sender": "" if r["mine"] else r["sender"],
+                   "mine": r["mine"], "kind": "dm", "chars": len(r["text"])}
+        for n, t in enumerate(sorted(tweets, key=_tweet_at)):
+            at = _tweet_at(t)
+            yield {"ref": f"tweet:{t['tweet'].get('id_str') or f'{int(at.timestamp())}-{n}'}",
+                   "at": _iso(at.timestamp()), "thread": None, "sender": "",
+                   "mine": True, "kind": "tweet",
+                   "chars": len(t["tweet"]["full_text"]), "source": "tweets"}
+
+    def threads(self, path):
+        """A direct conversation names both ids in its own id, joined by a
+        hyphen, so the other side is known even when it never wrote. A
+        group names its members in the join snapshots and the join events,
+        and its senders are added for an export that has neither."""
+        tweets, convos, me = self._export(path)
+        for c in convos:
+            conv = c["dmConversation"]
+            cid = conv["conversationId"]
+            members = set(cid.split("-")) if "-" in cid else set()
+            for m in conv["messages"]:
+                if "joinConversation" in m:
+                    members |= set(m["joinConversation"].get("participantsSnapshot") or [])
+                elif "participantsJoin" in m:
+                    members |= set(m["participantsJoin"].get("userIds") or [])
+                elif "messageCreate" in m:
+                    members.add(m["messageCreate"]["senderId"])
+            yield {"thread": cid, "name": None,
+                   "members": sorted(members - {me}), "direct": "-" in cid}
+
+    def aliases(self, path):
+        tweets, convos, me = self._export(path)
+        handles = handle_map(tweets)
+        seen = {h for t in self.threads(path) for h in t["members"]}
+        for uid in sorted(seen):
+            if uid in handles:
+                yield {"handle": uid, "label": handles[uid]}
+
     def media(self, path):
         out = []
         for name in MEDIA_DIRS:

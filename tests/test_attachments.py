@@ -19,21 +19,25 @@ def make_chatdb(path, messages, attachments=(), names=()):
     for a row whose message is gone. names: (chat_guid, display)."""
     con = sqlite3.connect(path)
     con.executescript("""
-    CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, guid TEXT, display_name TEXT);
+    CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, guid TEXT, display_name TEXT,
+        style INTEGER DEFAULT 45);
     CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
     CREATE TABLE message (ROWID INTEGER PRIMARY KEY, handle_id INTEGER,
-        date INTEGER, is_from_me INTEGER, text TEXT, attributedBody BLOB);
+        date INTEGER, is_from_me INTEGER, text TEXT, attributedBody BLOB,
+        guid TEXT, associated_message_type INTEGER DEFAULT 0,
+        item_type INTEGER DEFAULT 0, cache_has_attachments INTEGER DEFAULT 0);
     CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
+    CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
     CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY, filename TEXT,
         created_date INTEGER);
     CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);
     """)
-    chats, handles = {}, {}
+    chats, handles, members = {}, {}, set()
     display = dict(names)
     for rowid, guid, handle, ts, mine, text in messages:
         if guid not in chats:
             chats[guid] = len(chats) + 1
-            con.execute("INSERT INTO chat VALUES (?, ?, ?)",
+            con.execute("INSERT INTO chat (ROWID, guid, display_name) VALUES (?, ?, ?)",
                         (chats[guid], guid, display.get(guid)))
         hid = None
         if handle:
@@ -42,10 +46,16 @@ def make_chatdb(path, messages, attachments=(), names=()):
                 con.execute("INSERT INTO handle VALUES (?, ?)",
                             (handles[handle], handle))
             hid = handles[handle]
-        con.execute("INSERT INTO message VALUES (?, ?, ?, ?, ?, NULL)",
-                    (rowid, hid, (ts - APPLE) * 1_000_000_000, int(mine), text))
+        con.execute("INSERT INTO message (ROWID, handle_id, date, is_from_me, "
+                    "text, attributedBody, guid) VALUES (?, ?, ?, ?, ?, NULL, ?)",
+                    (rowid, hid, (ts - APPLE) * 1_000_000_000, int(mine), text,
+                     f"m{rowid}"))
         con.execute("INSERT INTO chat_message_join VALUES (?, ?)",
                     (chats[guid], rowid))
+        if hid is not None and (chats[guid], hid) not in members:
+            members.add((chats[guid], hid))
+            con.execute("INSERT INTO chat_handle_join VALUES (?, ?)",
+                        (chats[guid], hid))
     for i, (filename, message_rowid, *created) in enumerate(attachments,
                                                             start=1):
         con.execute("INSERT INTO attachment VALUES (?, ?, ?)",
@@ -387,7 +397,7 @@ class TestRows(unittest.TestCase):
             root = export(tmp, [(1, "b-chat", "+15550001111", T, False, "hello")],
                           [], {})
             con = sqlite3.connect(root / "chat.db")
-            con.execute("INSERT INTO chat VALUES (2, 'a-chat', NULL)")
+            con.execute("INSERT INTO chat (ROWID, guid, display_name) VALUES (2, 'a-chat', NULL)")
             con.execute("INSERT INTO chat_message_join VALUES (2, 1)")
             con.commit()
             con.close()

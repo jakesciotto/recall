@@ -228,6 +228,17 @@ class TestReferenceColumn(unittest.TestCase):
     judge's grade against it as `judge_correct`. Both are text with no
     CHECK, for the reason the other judge columns have none."""
 
+    def test_the_plan_travels_from_the_trace_to_the_row(self):
+        conn = Conn()
+        trace = dict(TRACE, plan='{"calls": []}', plan_ms=42)
+        querylog.log_query(conn, **entry(trace=trace))
+        sql, params = conn.log[0]
+        cols = sql.split("(")[1].split(")")[0].split(", ")
+        self.assertEqual(params[cols.index("plan")], '{"calls": []}')
+        self.assertEqual(params[cols.index("plan_ms")], 42)
+        self.assertIn("ADD COLUMN IF NOT EXISTS plan text", db.LOG_SCHEMA)
+        self.assertIn("ADD COLUMN IF NOT EXISTS plan_ms int", db.LOG_SCHEMA)
+
     def test_the_schema_carries_both_columns(self):
         self.assertIn("ADD COLUMN IF NOT EXISTS expected text", db.LOG_SCHEMA)
         self.assertIn("ADD COLUMN IF NOT EXISTS expected_decline text", db.LOG_SCHEMA)

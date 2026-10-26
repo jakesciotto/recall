@@ -3,6 +3,7 @@
   recall doctor            check the setup and say what is missing
   recall ingest            find sources under ./data and index them
   recall ask "question"    answer from the archive, with citations
+  recall stats count ...   exact counts from the structured store
   recall serve             HTTP API for a browser or another app
 """
 
@@ -76,11 +77,17 @@ def cmd_doctor(args):
           with db.connect() as conn:
               db.apply_schema(conn)
               rows = db.counts(conn)
+              held = db.event_counts(conn)
               logged = db.query_log_count(conn)
           total = sum(n for _, n in rows)
           _ok("postgres reachable", f"{total:,} chunks stored")
           for source, n in rows:
               print(f"          {source:14s} {n:,}")
+          if held:
+              _ok("structured store", ", ".join(f"{s} {n:,}" for s, n in held)
+                  + " events; `recall stats` counts them")
+          else:
+              _note("structured store empty", "recall ingest fills it")
           # Read the count, never the table's existence. A log that exists
           # and records nothing looks exactly like a working one.
           from . import querylog
@@ -220,11 +227,11 @@ def _embedder():
 
 def cmd_ask(args):
     import time
-    from . import answer, db, querylog, retrieve
+    from . import answer, db, querylog, retrieve, stats
     started = time.monotonic()
     question = " ".join(args.question)
     with db.connect() as conn:
-        hits, dates, trace = retrieve.search_traced(
+        hits, dates, trace = stats.gather(
             question, conn, _embedder(), k=args.k, source=args.source,
             today=dt.date.today())
     if dates.phrase:
@@ -272,6 +279,30 @@ def cmd_ask(args):
     except Exception:
         pass
     return 0 if hits else 1
+
+
+def cmd_stats(args):
+    """An exact count at the terminal, with no model in the way."""
+    from . import db, stats, trends
+    call = {"metric": args.metric, "source": args.source}
+    if args.metric == "count":
+        call.update({"with": args.with_, "by": args.by})
+    elif args.metric == "top":
+        call.update({"year": args.year, "direction": args.direction, "n": args.n})
+    else:
+        call.update({"n": args.n})
+    if stats.validate(call) is None:
+        print(f"not a call in the catalogue: {call}", file=sys.stderr)
+        return 2
+    with db.connect() as conn:
+        db.apply_schema(conn)
+        labels = stats.labels(conn, args.source)
+        result = stats.run(conn, call, labels, trends.zone())
+    if args.json:
+        print(json.dumps(result, indent=1, default=str))
+    else:
+        print(stats.render(result))
+    return 0
 
 
 def cmd_eval(args):
@@ -369,6 +400,21 @@ def main(argv=None):
     a.add_argument("--sources-only", action="store_true")
     a.add_argument("--no-stream", action="store_true")
     a.set_defaults(fn=cmd_ask)
+
+    st = sub.add_parser("stats", help="exact counts from the structured store")
+    st.add_argument("metric", choices=("count", "top", "streaks"))
+    st.add_argument("--source", choices=("messages", "email", "twitter", "tweets"),
+                    default="messages")
+    st.add_argument("--with", dest="with_", help="a contact name, a phone, "
+                    "an email or a twitter id; count only")
+    st.add_argument("--by", choices=("year", "month", "all"), default="year",
+                    help="the period; count only")
+    st.add_argument("--year", type=int, help="one local year; top only")
+    st.add_argument("--direction", choices=("sent", "received", "all"),
+                    default="all", help="the rank; top only")
+    st.add_argument("-n", type=int, default=5, help="people to list; top and streaks")
+    st.add_argument("--json", action="store_true", help="the result as JSON, for an agent")
+    st.set_defaults(fn=cmd_stats)
 
     e = sub.add_parser("eval", help="ask every question in a file, logging each")
     e.add_argument("file", help="markdown or text; numbered lines are questions")

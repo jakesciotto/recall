@@ -20,11 +20,21 @@ CONTEXT_TURNS = 3
 
 _SQL = """
 SELECT m.ROWID, c.guid, COALESCE(h.id, ''), m.date, m.is_from_me,
-       m.text, m.attributedBody
+       m.text, m.attributedBody, m.associated_message_type, m.item_type,
+       m.cache_has_attachments
 FROM message m
 LEFT JOIN handle h ON h.ROWID = m.handle_id
 LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
 LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+"""
+
+DIRECT_STYLE = 45     # chat.style: 45 is one-to-one, 43 is a group
+
+_MEMBERS_SQL = """
+SELECT c.guid, c.display_name, c.style, h.id
+FROM chat c
+LEFT JOIN chat_handle_join j ON j.chat_id = c.ROWID
+LEFT JOIN handle h ON h.ROWID = j.handle_id
 """
 
 
@@ -130,28 +140,58 @@ def _unix(value):
     return value + APPLE_EPOCH
 
 
+# The object replacement character stands where an attachment sat in the
+# body. A photo sent alone decodes to nothing else.
+_PLACEHOLDER = "\ufffc"
+
+
+def chars_of(body):
+    """The characters a person typed: the body without its placeholders."""
+    return len((body or "").replace(_PLACEHOLDER, "").strip())
+
+
+def kind_of(body, associated_type, item_type, has_attachments):
+    """What a message row is. A tapback is a reaction to another message,
+    a system row is a join, a leave or a rename, and a photo sent alone
+    carries no text. A count of texts excludes the first two."""
+    if associated_type and 2000 <= associated_type < 4000:
+        return "tapback"
+    if item_type:
+        return "system"
+    if chars_of(body):
+        return "text"
+    return "attachment" if has_attachments else "empty"
+
+
 class IMessage(Source):
     name = "messages"
+
+    def __init__(self):
+        self._cache = {}
 
     def detect(self, root):
         return sorted(p for p in walk(root)
                       if p.name == "chat.db" and p.is_file())
 
-    def _rows(self, path):
+    def _all_rows(self, path):
+        """Every message row once, with its kind, cached per path: the
+        chunks and the store read the same decode of one export."""
+        key = str(path)
+        if key in self._cache:
+            return self._cache[key]
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
             names = {g: n for g, n in con.execute(
                 "SELECT guid, display_name FROM chat "
                 "WHERE display_name IS NOT NULL AND display_name != ''")}
             out = []
-            for rid, guid, handle, date, mine, text, blob in con.execute(_SQL):
-                body = text or decode_attributed_body(blob)
-                if not body or not body.strip():
-                    continue
+            for (rid, guid, handle, date, mine, text, blob, assoc, item,
+                 attached) in con.execute(_SQL):
+                body = (text or decode_attributed_body(blob) or "").strip()
                 out.append({
                     "rowid": rid, "thread": guid or "", "handle": handle,
-                    "at": _unix(date), "mine": bool(mine),
-                    "text": body.strip(),
+                    "at": _unix(date), "mine": bool(mine), "text": body,
+                    "kind": kind_of(body, assoc, item, attached),
                 })
             out.sort(key=lambda r: (r["thread"], r["at"], r["rowid"]))
             # A message joined to two chats is one event: it keeps the
@@ -161,9 +201,43 @@ class IMessage(Source):
                 if r["rowid"] not in seen:
                     seen.add(r["rowid"])
                     once.append(r)
+            self._cache[key] = (once, names)
             return once, names
         finally:
             con.close()
+
+    def _rows(self, path):
+        """The rows that carry text, for the conversation windows."""
+        rows, names = self._all_rows(path)
+        return [r for r in rows if r["text"]], names
+
+    def events(self, path):
+        rows, _ = self._all_rows(path)
+        for r in rows:
+            if not r["at"]:
+                continue
+            yield {"ref": f"message:{r['rowid']}", "at": _iso(r["at"]),
+                   "thread": r["thread"] or None,
+                   "sender": "" if r["mine"] else r["handle"],
+                   "mine": r["mine"], "kind": r["kind"],
+                   "chars": chars_of(r["text"])}
+
+    def threads(self, path):
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            chats = {}
+            for guid, name, style, handle in con.execute(_MEMBERS_SQL):
+                entry = chats.setdefault(guid, {"thread": guid, "name": name or None,
+                                                "members": set(),
+                                                "direct": style == DIRECT_STYLE})
+                if handle:
+                    entry["members"].add(handle)
+        finally:
+            con.close()
+        for guid in sorted(chats):
+            entry = chats[guid]
+            yield {"thread": guid, "name": entry["name"],
+                   "members": sorted(entry["members"]), "direct": entry["direct"]}
 
     def _attachments(self, path):
         """[(file, message)] for every attachment row whose file exists.
