@@ -21,7 +21,11 @@ import urllib.parse
 
 from . import config, contacts, db, retrieve, trends
 
-SOURCES = ("messages", "email", "twitter")
+SOURCES = ("messages", "email", "twitter", "tweets")
+# A source whose every event is the user's own, with no other side.
+OWN = {"tweets": "tweets"}
+# A five or six digit sender is a bank or a 2FA service, never a person.
+SHORT_CODE = r"^[0-9]{1,6}$"
 PERIODS = ("year", "month", "all")
 DIRECTIONS = ("sent", "received", "all")
 EXCLUDED = ("tapback", "system", "empty")
@@ -233,7 +237,7 @@ WITH m AS (
   FROM thread t
   CROSS JOIN unnest(t.members) AS h
   LEFT JOIN alias a ON a.handle = h AND a.source IN (t.source, %(contacts)s)
-  WHERE t.source = %(source)s
+  WHERE t.source = %(source)s AND h !~ %(short_code)s
 ),
 s AS (
   SELECT e.*, coalesce(a.label, e.sender) AS who
@@ -304,7 +308,7 @@ def _bounds(year, tz):
 def _top(conn, call, labels, tz):
     out = _base(call, labels)
     params = {"source": call["source"], "excluded": list(EXCLUDED),
-              "contacts": CONTACTS, "limit": call["n"]}
+              "contacts": CONTACTS, "short_code": SHORT_CODE, "limit": call["n"]}
     bounds = ""
     if call["year"]:
         params["since"], params["until"] = _bounds(call["year"], tz)
@@ -320,7 +324,8 @@ def _top(conn, call, labels, tz):
 def _streaks(conn, call, labels, tz):
     out = _base(call, labels)
     params = {"source": call["source"], "tz": _zone_name(tz),
-              "excluded": list(EXCLUDED), "contacts": CONTACTS}
+              "excluded": list(EXCLUDED), "contacts": CONTACTS,
+              "short_code": SHORT_CODE}
     days = collections.defaultdict(set)
     for r in db.fetch(conn, _STREAK_DAYS, params):
         days[r["who"]].add(_day(r["day"]))
@@ -381,8 +386,9 @@ def render(result, today=None, tz=None):
         head = f"streaks, {source}"
     lines = [f"[stats: {head}, times in {zone}]",
              f"Computed on {today} from the {source} store, which holds one row "
-             f"per message in the export. Counts are exact. Tapbacks, system "
-             f"rows and empty rows are not counted."]
+             f"per {OWN.get(source, 'message')[:-1] if source in OWN else 'message'} "
+             f"in the export. Counts are exact. Tapbacks, system rows and empty "
+             f"rows are not counted."]
     if call["metric"] == "count" and call.get("with") and not result["handles"]:
         if result["candidates"]:
             lines.append(f'"{call["with"]}" matches several contacts: '
@@ -414,6 +420,13 @@ def render(result, today=None, tz=None):
                       "received group": r["received_group"]} for r in rows]
             day_rule = (f"A day counts when either of you wrote in the direct "
                         f"thread or {who} wrote in a group.")
+        elif source in OWN:
+            noun = OWN[source]
+            sent = sum(r["sent"] for r in rows)
+            received = 0
+            columns = ("period", noun)
+            keyed = [{"period": r["period"], noun: r["sent"]} for r in rows]
+            day_rule = f"A day counts when you posted. Retweets count as {noun}."
         else:
             sent = sum(r["sent"] for r in rows)
             received = sum(r["received"] for r in rows)
@@ -421,8 +434,9 @@ def render(result, today=None, tz=None):
             keyed = [{"period": r["period"], "sent": r["sent"],
                       "received": r["received"]} for r in rows]
             day_rule = "A day counts when any message was sent or received."
-        lines.append(f"Total {sent + received:,}: sent {sent:,}, received "
-                     f"{received:,}; excluded {result['excluded']:,}. "
+        total = (f"Total {sent:,} {OWN[source]}" if source in OWN else
+                 f"Total {sent + received:,}: sent {sent:,}, received {received:,}")
+        lines.append(f"{total}; excluded {result['excluded']:,}. "
                      + (f"First {result['first']}, last {result['last']}. "
                         if result["first"] else "No dated messages. ")
                      + f"Longest daily streak {_span(result['streak'], 'day')}. "
@@ -435,6 +449,8 @@ def render(result, today=None, tz=None):
                 lines.append(f"Direct thread: sent {r['sent_direct']:,}, received "
                              f"{r['received_direct']:,}. Group threads: sent "
                              f"{r['sent_group']:,}, received {r['received_group']:,}.")
+            elif source in OWN:
+                lines.append(f"{r['sent']:,} {OWN[source]}.")
             else:
                 lines.append(f"Sent {r['sent']:,}, received {r['received']:,}.")
         else:
@@ -468,14 +484,14 @@ def render(result, today=None, tz=None):
 
 PLANNER = """You turn a question about a personal archive into calls on its structured store, or decline.
 
-The store counts messages (Apple Messages: texts and iMessages), email, and twitter (direct messages). Each call is one JSON object:
-- {"metric": "count", "source": "messages|email|twitter", "with": "<person's name as written in the question, or null>", "by": "year|month|all"}: how many were sent and received, per period, in threads with the person, or in every thread when with is null. Use it for how many, how often, over time, did I ever message, when did we start or stop, first or last message with someone.
+The store counts messages (Apple Messages: texts and iMessages), email, twitter (direct messages), and tweets (the user's own tweets, with no other person). Each call is one JSON object:
+- {"metric": "count", "source": "messages|email|twitter|tweets", "with": "<person's name as written in the question, or null>", "by": "year|month|all"}: how many were sent and received, per period, in threads with the person, or in every thread when with is null. Use it for how many, how often, over time, did I ever message, when did we start or stop, first or last message with someone.
 - {"metric": "top", "source": "messages|email|twitter", "year": <four digit year, or null for all years>, "direction": "sent|received|all", "n": <1 to 25>}: the people with the most messages. Use it for who did I message most, top contacts, who filled my inbox, who sent me the most.
 - {"metric": "streaks", "source": "messages|email|twitter", "n": <1 to 25>}: the longest daily streaks and the longest gaps per person. Use it for longest streak, longest unbroken run, longest gap or silence.
 
 Rules:
 1. Answer with a JSON array of at most 3 calls, or the word null. No prose, no code fence.
-2. texts, iMessages or messages mean messages. mail or email means email. DMs or twitter means twitter. When the question names no channel, use messages.
+2. texts, iMessages or messages mean messages. mail or email means email. DMs or twitter means twitter. tweets or tweeting means tweets, and a tweets call never names a person. When the question names no channel, use messages.
 3. over time means by year. A question that compares years makes one call per year.
 4. Any question about how many, how often, when first or last, which share in groups against one-to-one, or whether any message exists with a named person is a count call with that person. The count answers all of those at once.
 5. A question about what was said, what a message or a document contains, or anything the store cannot count, is null.
@@ -496,6 +512,8 @@ Question: who sent me the most email in 2021?
 [{"metric": "top", "source": "email", "year": 2021, "direction": "received", "n": 5}]
 Question: which contact shows the longest unbroken messaging streak?
 [{"metric": "streaks", "source": "messages", "n": 3}]
+Question: when did I stop tweeting regularly, and what was my last tweet before the gap?
+[{"metric": "count", "source": "tweets", "with": null, "by": "year"}]
 Question: who filled my inbox the most in 2021, and what did they usually write about?
 [{"metric": "top", "source": "email", "year": 2021, "direction": "received", "n": 5}]
 Question: what did Ada say about the trip in 2018?

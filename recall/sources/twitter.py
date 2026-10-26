@@ -157,12 +157,21 @@ class Twitter(Source):
         yield from self._media_chunks(path, tweets, convos, me, budget)
 
     def events(self, path):
+        """DMs under this adapter's name, and every tweet under the source
+        `tweets`: a tweet has no other side, so mixing the two would make
+        "how many DMs" count tweets."""
         tweets, convos, me = self._export(path)
         for r in dm_records(convos, {}, me):
             yield {"ref": f"dm:{r['rowid']}", "at": _iso(r["at"]),
                    "thread": r["thread"],
                    "sender": "" if r["mine"] else r["sender"],
                    "mine": r["mine"], "kind": "dm", "chars": len(r["text"])}
+        for n, t in enumerate(sorted(tweets, key=_tweet_at)):
+            at = _tweet_at(t)
+            yield {"ref": f"tweet:{t['tweet'].get('id_str') or f'{int(at.timestamp())}-{n}'}",
+                   "at": _iso(at.timestamp()), "thread": None, "sender": "",
+                   "mine": True, "kind": "tweet",
+                   "chars": len(t["tweet"]["full_text"]), "source": "tweets"}
 
     def threads(self, path):
         """A direct conversation names both ids in its own id, joined by a

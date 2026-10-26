@@ -216,6 +216,9 @@ def chatdb(root):
     # every member; the messages alone would make the group look direct.
     con.execute("INSERT INTO handle VALUES (3, '+15550003333')")
     con.execute("INSERT INTO chat_handle_join VALUES (2, 3)")
+    # A short code in the group: a bank, never a person.
+    con.execute("INSERT INTO handle VALUES (4, '78156')")
+    con.execute("INSERT INTO chat_handle_join VALUES (2, 4)")
     con.execute("UPDATE chat SET style = 43 WHERE guid = 'g1'")
     con.commit()
     con.close()
@@ -286,7 +289,8 @@ class TestMessageEvents(unittest.TestCase):
     def test_threads_carry_their_members_and_name(self):
         threads = {t["thread"]: t for t in self.src.threads(self.path)}
         self.assertEqual(threads["c1"]["members"], ["+15550001111"])
-        self.assertEqual(threads["g1"]["members"], ["+15550002222", "+15550003333"])
+        self.assertEqual(threads["g1"]["members"],
+                         ["+15550002222", "+15550003333", "78156"])
         self.assertEqual(threads["g1"]["name"], "the gang")
         self.assertIsNone(threads["c1"]["name"])
 
@@ -439,7 +443,8 @@ class TestTwitterEvents(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_every_dm_is_an_event(self):
-        events = {e["ref"]: e for e in self.src.events(self.data)}
+        events = {e["ref"]: e for e in self.src.events(self.data)
+                  if not e.get("source")}
         self.assertEqual(set(events), {"dm:1", "dm:2", "dm:3", "dm:4"})
         self.assertEqual(events["dm:1"]["sender"], "222")
         self.assertFalse(events["dm:1"]["mine"])
@@ -458,6 +463,18 @@ class TestTwitterEvents(unittest.TestCase):
     def test_a_group_takes_the_snapshot_and_the_senders_minus_me(self):
         threads = {t["thread"]: t for t in self.src.threads(self.data)}
         self.assertEqual(threads["9001"]["members"], ["222", "333"])
+
+    def test_every_tweet_is_an_event_under_the_tweets_source(self):
+        events = [e for e in self.src.events(self.data) if e.get("source") == "tweets"]
+        self.assertEqual(len(events), 1)
+        e = events[0]
+        self.assertEqual(e["kind"], "tweet")
+        self.assertTrue(e["mine"])
+        self.assertIsNone(e["thread"])
+        self.assertEqual(e["at"], "2018-06-20T12:00:00Z")
+        self.assertTrue(e["ref"].startswith("tweet:"))
+        dms = [e for e in self.src.events(self.data) if not e.get("source")]
+        self.assertEqual(len(dms), 4)
 
     def test_aliases_name_the_ids_the_tweets_resolve(self):
         self.assertEqual(list(self.src.aliases(self.data)),
@@ -551,7 +568,41 @@ def run_ingest(adapter, store):
             return ingest.run(root, NoConn(), log=lambda *a: None)
 
 
+class TwoSources(base.Source):
+    """One adapter whose rows name two sources, as the Twitter adapter
+    yields DMs under its own name and tweets under tweets."""
+
+    name = "twitter"
+
+    def detect(self, root):
+        return [root]
+
+    def samples(self, path):
+        return ["x" * 100]
+
+    def chunks(self, path, budget, contacts=None):
+        yield base.Chunk(ref="dm:1", text="hi", source=self.name,
+                         occurred_at="2020-01-01T00:00:00Z", date_confidence="exact")
+
+    def events(self, path):
+        yield {"ref": "dm:1", "at": "2020-01-01T00:00:00Z", "thread": "t",
+               "sender": "x", "mine": False, "kind": "dm", "chars": 2}
+        yield {"ref": "tweet:1", "at": "2020-01-01T00:00:00Z", "thread": None,
+               "sender": "", "mine": True, "kind": "tweet", "chars": 2,
+               "source": "tweets"}
+
+    def threads(self, path):
+        yield {"thread": "t", "name": None, "members": ["x"], "direct": True}
+
+
 class TestIngestLoadsTheStore(unittest.TestCase):
+    def test_rows_that_name_a_source_load_under_it(self):
+        store = StoreDb()
+        summary = run_ingest(TwoSources(), store)
+        loaded = {(s, c): [e["ref"] for e in ev] for s, c, ev, *_ in store.replaced}
+        self.assertEqual(loaded, {("twitter", True): ["dm:1"], ("tweets", True): ["tweet:1"]})
+        self.assertEqual(summary["twitter"]["events"], 2)
+
     def test_a_second_folder_of_one_source_does_not_clear_the_first(self):
         store = StoreDb()
         summary = run_ingest(Chatty(), store)

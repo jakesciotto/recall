@@ -191,8 +191,11 @@ identifiers of everyone but the user. `aliases(path)` yields
 `{handle, label}` for identifiers the export names itself, as a Twitter
 archive names account ids. Parse the export once and cache the parse:
 the ingest calls `chunks` and then these three on the same path, and a
-mail export can be gigabytes. The messages, mail and Twitter adapters
-are the examples.
+mail export can be gigabytes. An event may carry a `source` of its own
+when it belongs beside the adapter's rows rather than among them: the
+Twitter adapter yields DMs under `twitter` and tweets under `tweets`,
+because a tweet has no other side and "how many DMs" must not count it.
+The messages, mail and Twitter adapters are the examples.
 
 An adapter with images implements `media(path)`, yielding the files for
 `recall caption` to describe. Read the records back in `chunks` through

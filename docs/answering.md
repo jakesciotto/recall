@@ -68,7 +68,7 @@ Three metrics run over it, and code owns every query:
 
 | metric | arguments | what it says |
 |---|---|---|
-| `count` | `source`, `with` (a person or none), `by` (`year`, `month`, `all`) | sent and received per period, in the direct thread and in groups, with first, last, longest streak and longest gap |
+| `count` | `source`, `with` (a person or none), `by` (`year`, `month`, `all`) | sent and received per period, in the direct thread and in groups, with first, last, longest streak and longest gap. For `tweets` one column, the user's own tweets, with the same streak and gap |
 | `top` | `source`, `year` (or none), `direction`, `n` | the people with the most messages |
 | `streaks` | `source`, `n` | the longest daily streaks and gaps per person |
 
@@ -78,7 +78,14 @@ At the terminal, no model is involved:
 recall stats count --with "Ada Lovelace" --by year
 recall stats top --year 2019 --direction received -n 10
 recall stats streaks --source twitter
+recall stats count --source tweets --by year --json
 ```
+
+`--json` prints the result as data, for an agent. Sources are `messages`,
+`email`, `twitter` (direct messages) and `tweets` (your own tweets, no
+other side, so "when did I stop tweeting" is a count with its gap). A
+five or six digit sender is a short code, a bank or a 2FA service, and
+never appears in a ranking or a streak list.
 
 Through `recall ask` and the API, one planner call runs before
 retrieval when a chat endpoint is set. The model sees the question and
@@ -114,8 +121,10 @@ one declined "when did I first and last message", the other declined
 count with something the store cannot answer was declined whole. With the
 examples and the rule that a mixed question still gets its count, a
 twelve-question bench (eight counts, four content questions) planned
-12 of 12. A planner is a model, so measure it again when the model
-changes; the bench is five lines of Python over `stats.plan`.
+12 of 12. A planner is a model, so it is measured, not trusted: the
+bench is a live test, `TestPlannerBench` in `tests/test_stats_live.py`,
+thirteen questions with invented names and a floor of eleven. It runs
+whenever a chat endpoint is set and skips in CI.
 
 ## Tell the model your name
 

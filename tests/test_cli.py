@@ -248,6 +248,14 @@ class TestStatsCommand(unittest.TestCase):
         self.assertEqual(call, {"metric": "top", "source": "messages",
                                 "year": 2019, "direction": "sent", "n": 3})
 
+    def test_json_prints_the_result_for_an_agent(self):
+        import json
+        code, call, out = self.run_stats(["stats", "top", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["call"]["metric"], "top")
+        self.assertEqual(data["rows"], [])
+
     def test_a_call_outside_the_catalogue_exits_two_before_the_database(self):
         code, call, _ = self.run_stats(["stats", "top", "-n", "999"])
         self.assertEqual(code, 2)

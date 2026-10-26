@@ -87,21 +87,45 @@ def _peek(rows):
     return False, itertools.chain([first], rows)
 
 
+def _only(rows, source, default, seen):
+    """The rows of one source, streaming. A row names its source or takes
+    the adapter's; every name met lands in `seen`, so a second source the
+    adapter yields gets its own pass over the cached parse."""
+    for r in rows:
+        name = r.get("source") or default
+        seen.add(name)
+        if name == source:
+            yield r
+
+
+def _load(conn, source, events, threads, aliases, cleared, log):
+    counts = db.replace_events(conn, source, events, threads, aliases,
+                               clear=source not in cleared)
+    cleared.add(source)
+    log(f"[{source}] store: {counts['events']:,} events, "
+        f"{counts['threads']:,} threads")
+    return counts
+
+
 def store(adapter, path, conn, cleared, log):
     """Load one folder's events into the structured store. The first
     folder of a source in a run replaces the source's rows; a later folder
-    of the same source adds to them. Returns the counts, or None when the
+    of the same source adds to them. Threads and aliases belong to the
+    adapter's own source. Returns the summed counts, or None when the
     adapter yields nothing for the store."""
-    no_events, events = _peek(adapter.events(path))
+    seen = set()
+    no_events, events = _peek(_only(adapter.events(path), adapter.name,
+                                    adapter.name, seen))
     no_threads, threads = _peek(adapter.threads(path))
-    if no_events and no_threads:
-        return None
-    counts = db.replace_events(conn, adapter.name, events, threads,
-                               adapter.aliases(path),
-                               clear=adapter.name not in cleared)
-    cleared.add(adapter.name)
-    log(f"[{adapter.name}] store: {counts['events']:,} events, "
-        f"{counts['threads']:,} threads")
+    counts = None
+    if not (no_events and no_threads):
+        counts = _load(conn, adapter.name, events, threads,
+                       adapter.aliases(path), cleared, log)
+    for other in sorted(seen - {adapter.name}):
+        rows = _only(adapter.events(path), other, adapter.name, set())
+        more = _load(conn, other, rows, [], [], cleared, log)
+        counts = counts or {"events": 0, "threads": 0, "aliases": 0}
+        counts["events"] += more["events"]
     return counts
 
 

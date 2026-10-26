@@ -249,6 +249,48 @@ class TestTopQuery(unittest.TestCase):
                 self.assertIn(order, conn.log[0][0])
 
 
+class TestShortCodes(unittest.TestCase):
+    """A five or six digit sender is a bank or a 2FA service, not a person.
+    One sat third in the gap list with 36 active days."""
+
+    def test_rankings_and_streaks_exclude_short_codes_in_the_query(self):
+        for call in ({"metric": "top"}, {"metric": "streaks"}):
+            with self.subTest(metric=call["metric"]):
+                conn = Conn([])
+                stats.run(conn, call, LABELS, TZ)
+                sql, params = conn.log[0]
+                self.assertIn("AND h !~ %(short_code)s", sql)
+                self.assertEqual(params["short_code"], stats.SHORT_CODE)
+        import re
+        for handle, short in (("78156", True), ("123456", True), ("+15550001111", False),
+                              ("3207564556", False), ("ada@example.org", False)):
+            with self.subTest(handle=handle):
+                self.assertEqual(bool(re.match(stats.SHORT_CODE, handle)), short)
+
+
+class TestTweets(unittest.TestCase):
+    def test_tweets_are_a_source_of_their_own(self):
+        self.assertIn("tweets", stats.SOURCES)
+        self.assertIn("tweets", stats.PLANNER)
+        self.assertEqual(stats.validate({"metric": "count", "source": "tweets"})["source"],
+                         "tweets")
+
+    def test_a_tweet_count_renders_one_column_and_the_gap(self):
+        rows = [{"period": "2023", "sent": 120, "received": 0, "excluded": 0},
+                {"period": "2024", "sent": 3, "received": 0, "excluded": 0}]
+        days = [{"day": "2024-03-14"}, {"day": "2024-03-15"}, {"day": "2024-03-16"},
+                {"day": "2024-11-12"}]
+        conn = Conn(rows, days)
+        result = stats.run(conn, {"metric": "count", "source": "tweets"}, LABELS, TZ)
+        text = stats.render(result, today=dt.date(2026, 10, 26), tz=TZ)
+        self.assertIn("one row per tweet", text)
+        self.assertIn("period | tweets", text)
+        self.assertIn("2023 | 120", text)
+        self.assertNotIn("received", text)
+        self.assertIn("Longest gap 240 silent days (2024-03-16 to 2024-11-12)", text)
+        self.assertIn("Retweets count", text)
+
+
 class TestStreaksQuery(unittest.TestCase):
     def test_streaks_and_gaps_fold_per_person(self):
         rows = [{"who": "Ada Lovelace", "day": "2021-01-01"},

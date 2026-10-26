@@ -298,7 +298,10 @@ def cmd_stats(args):
         db.apply_schema(conn)
         labels = stats.labels(conn, args.source)
         result = stats.run(conn, call, labels, trends.zone())
-    print(stats.render(result))
+    if args.json:
+        print(json.dumps(result, indent=1, default=str))
+    else:
+        print(stats.render(result))
     return 0
 
 
@@ -400,7 +403,7 @@ def main(argv=None):
 
     st = sub.add_parser("stats", help="exact counts from the structured store")
     st.add_argument("metric", choices=("count", "top", "streaks"))
-    st.add_argument("--source", choices=("messages", "email", "twitter"),
+    st.add_argument("--source", choices=("messages", "email", "twitter", "tweets"),
                     default="messages")
     st.add_argument("--with", dest="with_", help="a contact name, a phone, "
                     "an email or a twitter id; count only")
@@ -410,6 +413,7 @@ def main(argv=None):
     st.add_argument("--direction", choices=("sent", "received", "all"),
                     default="all", help="the rank; top only")
     st.add_argument("-n", type=int, default=5, help="people to list; top and streaks")
+    st.add_argument("--json", action="store_true", help="the result as JSON, for an agent")
     st.set_defaults(fn=cmd_stats)
 
     e = sub.add_parser("eval", help="ask every question in a file, logging each")

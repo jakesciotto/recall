@@ -55,8 +55,49 @@ def drop_scratch():
 
 
 def load(conn, source, adapter, path):
-    db.replace_events(conn, source, adapter.events(path), adapter.threads(path),
-                      adapter.aliases(path))
+    db.replace_events(conn, source,
+                      [e for e in adapter.events(path) if not e.get("source")],
+                      adapter.threads(path), adapter.aliases(path))
+
+
+BENCH = {
+    "how many texts have I sent to Ada Lovelace over time": "count",
+    "whom did I text most in 2019, and whom in 2021? Did the top contact change?": "top",
+    "which contact shows the longest unbroken messaging streak, and over which dates?": "streaks",
+    "did I ever message Bo Peep?": "count",
+    "when did I first and last message Bo Peep, and how many messages did we exchange?": "count",
+    "how many messages have I exchanged with Ada Lovelace in group chats compared with one-to-one?": "count",
+    "who sent me the most email in 2021, and is that sender a person or a service?": "top",
+    "how often did I DM ada on twitter each year?": "count",
+    "when did I stop tweeting regularly, and what was my last tweet before the gap?": "count",
+    "what did I write about the Chicago trip in 2018": None,
+    "when did I last see the dentist": None,
+    "show the email where Bo Peep and I planned a dinner": None,
+    "what was on my calendar on 2011-06-15?": None,
+}
+BENCH_FLOOR = 11
+
+
+class TestPlannerBench(unittest.TestCase):
+    """The planner is a model, so it is measured, not trusted. Thirteen
+    questions, nine the store can count and four it cannot. The floor
+    leaves room for one miss; a second miss is a prompt regression or a
+    model change worth reading."""
+
+    def test_the_planner_plans_the_bench(self):
+        if not config.CHAT_URL:
+            self.skipTest("no RECALL_CHAT_URL")
+        from recall import answer
+        hits, misses = 0, []
+        for question, want in BENCH.items():
+            plan = stats.plan(question, chat=answer.chat)
+            got = [c["metric"] for c in plan.calls]
+            if (want is None and not got) or (want in got):
+                hits += 1
+            else:
+                misses.append((question, want, got, plan.error))
+        print(f"\nplanner bench: {hits} of {len(BENCH)}; misses: {misses}")
+        self.assertGreaterEqual(hits, BENCH_FLOOR, misses)
 
 
 class TestCountsAgainstPostgres(unittest.TestCase):
@@ -79,7 +120,10 @@ class TestCountsAgainstPostgres(unittest.TestCase):
             db.apply_schema(conn, dims=4)
             load(conn, "messages", imessage.IMessage(), chat)
             load(conn, "email", mbox.Mbox(), mail)
-            load(conn, "twitter", twitter.Twitter(), data)
+            tw = twitter.Twitter()
+            load(conn, "twitter", tw, data)
+            db.replace_events(conn, "tweets", [e for e in tw.events(data)
+                                               if e.get("source") == "tweets"], [], [])
             db.replace_events(conn, stats.CONTACTS, [], [],
                               [{"handle": h, "label": n} for h, n in CONTACTS.items()])
 
@@ -96,7 +140,7 @@ class TestCountsAgainstPostgres(unittest.TestCase):
         with db.connect(scratch_dsn()) as conn:
             rows = db.fetch(conn, "SELECT source, count(*) AS n FROM event GROUP BY 1 ORDER BY 1")
         self.assertEqual({r["source"]: r["n"] for r in rows},
-                         {"messages": 9, "email": 3, "twitter": 4})
+                         {"messages": 9, "email": 3, "twitter": 4, "tweets": 1})
 
     def test_count_with_a_person_by_year(self):
         r = self.run_call({"metric": "count", "with": "Ada Lovelace"})
@@ -149,6 +193,18 @@ class TestCountsAgainstPostgres(unittest.TestCase):
         self.assertEqual(r["rows"], [
             {"period": "all", "sent_direct": 1, "received_direct": 1,
              "sent_group": 1, "received_group": 0, "excluded": 0}])
+
+    def test_a_short_code_member_is_in_no_ranking(self):
+        r = self.run_call({"metric": "top", "n": 10})
+        self.assertNotIn("78156", [row["label"] for row in r["rows"]])
+        r = self.run_call({"metric": "streaks", "n": 10})
+        self.assertNotIn("78156", [p["label"] for p in r["streaks"]])
+
+    def test_tweets_count_by_year_with_their_gap(self):
+        r = self.run_call({"metric": "count", "source": "tweets", "by": "year"})
+        self.assertEqual(r["rows"], [{"period": "2018", "sent": 1, "received": 0,
+                                      "excluded": 0}])
+        self.assertEqual(r["first"], dt.date(2018, 6, 20))
 
     def test_a_hit_is_readable_back_through_the_judge_join(self):
         from recall import judge
