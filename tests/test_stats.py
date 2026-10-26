@@ -287,7 +287,7 @@ class TestTweets(unittest.TestCase):
         self.assertIn("period | tweets", text)
         self.assertIn("2023 | 120", text)
         self.assertNotIn("received", text)
-        self.assertIn("Longest gap 240 silent days (2024-03-16 to 2024-11-12)", text)
+        self.assertIn("\nLongest gap 240 silent days (2024-03-16 to 2024-11-12).", text)
         self.assertIn("Retweets count", text)
 
 
@@ -329,7 +329,9 @@ class TestRender(unittest.TestCase):
         self.assertIn("excluded 3", text)
         self.assertIn("direct", text)
         self.assertIn("2021 | 1 | 2 | 1 | 1", text)
-        self.assertIn("First 2021-05-03", text)
+        self.assertIn("\nFirst 2021-05-03, last 2021-05-03.\n", text)
+        self.assertIn("\nLongest daily streak 1 day", text)
+        self.assertIn("\nLongest gap 0 silent days", text)
         self.assertNotIn("+15550001111", text)
 
     def test_a_one_period_count_renders_as_sentences_not_a_table(self):

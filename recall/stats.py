@@ -436,11 +436,13 @@ def render(result, today=None, tz=None):
             day_rule = "A day counts when any message was sent or received."
         total = (f"Total {sent:,} {OWN[source]}" if source in OWN else
                  f"Total {sent + received:,}: sent {sent:,}, received {received:,}")
-        lines.append(f"{total}; excluded {result['excluded']:,}. "
-                     + (f"First {result['first']}, last {result['last']}. "
-                        if result["first"] else "No dated messages. ")
-                     + f"Longest daily streak {_span(result['streak'], 'day')}. "
-                     f"Longest gap {_span(result['gap'], 'silent day')}. {day_rule}")
+        # One fact per line. A 26B model declined a question whose answer
+        # sat mid-sentence in a run-on line of five facts.
+        lines.append(f"{total}; excluded {result['excluded']:,}.")
+        lines.append(f"First {result['first']}, last {result['last']}."
+                     if result["first"] else "No dated messages.")
+        lines.append(f"Longest daily streak {_span(result['streak'], 'day')}.")
+        lines.append(f"Longest gap {_span(result['gap'], 'silent day')}. {day_rule}")
         # One period is two sentences, not a one-row table: a model once
         # crossed the columns of such a table.
         if call["by"] == "all" and len(rows) == 1:
