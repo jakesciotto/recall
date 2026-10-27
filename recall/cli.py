@@ -244,8 +244,13 @@ def cmd_ask(args):
     text = None
     meta = {}
     first_token_ms = None
-    generate = not args.sources_only and config.CHAT_URL
-    if generate:
+    settled = None if args.sources_only else trace.get("ask_back")
+    generate = not args.sources_only and config.CHAT_URL and not settled
+    if settled:
+        print()
+        print(settled)
+        text = settled
+    elif generate:
         print()
         if args.no_stream:
             text = answer.chat(prompt, meta=meta)

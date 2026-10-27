@@ -44,6 +44,38 @@
     {
       "name": "receipt",
       "definition": "A purchase confirmation mail that the mbox allowlist keeps even when it also carries Category Updates."
+    },
+    {
+      "name": "handle",
+      "definition": "An identifier of a person in one source: a phone number in the form the store holds, an email address, or a Twitter account id. Thread members and event senders in the store are handles."
+    },
+    {
+      "name": "label",
+      "definition": "The display name that the contacts map or an export gives a handle. Several handles can share one label, and the store resolves a sender or a member to its label."
+    },
+    {
+      "name": "folded name",
+      "definition": "A label as resolve compares it: case, accents, emoji and punctuation removed, an apostrophe closed up. A folded name owns every handle whose label folds to it, and a partial name matches only at the start of a word of it."
+    },
+    {
+      "name": "ask-back",
+      "definition": "The answer that code writes when a count cannot resolve its person: the matching names with their message counts, or the fact that nothing matches, and a request to ask again with one name. It cites the table and calls no model."
+    },
+    {
+      "name": "active day",
+      "definition": "A local day in RECALL_TZ on which a count's day rule finds a message: in the one-to-one thread from either side, or from the person in a group. A count reports active days in total and per period."
+    },
+    {
+      "name": "silent day",
+      "definition": "A local day with no message under the same day rule as an active day, between two active days. A gap counts silent days."
+    },
+    {
+      "name": "date range",
+      "definition": "The start and the end that parse_dates reads from a question, the end exclusive. since X ends at the end of today; from X to Y, X to Y and between X and Y end at the end of Y; a lone period is itself. The range bounds retrieval, a count, and a top call that names no year."
+    },
+    {
+      "name": "store end",
+      "definition": "The local day of the newest row of a source in the store. A count states it, so an answer can tell an export that ends early from silence."
     }
   ]
 }

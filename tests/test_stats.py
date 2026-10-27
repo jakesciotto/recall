@@ -1,11 +1,14 @@
 """Counts from the structured store, and the planner that asks for them."""
 
+import contextlib
 import datetime as dt
+import io
 import json
 import unittest
+import zoneinfo
 from unittest import mock
 
-from recall import retrieve, stats
+from recall import answer, cli, config, db, evalrun, querylog, retrieve, serve, stats
 
 TZ = dt.timezone.utc
 
@@ -128,6 +131,34 @@ class TestResolve(unittest.TestCase):
         self.assertEqual(stats.resolve("nobody", LABELS, "messages"),
                          ([], "nobody", []))
 
+    def test_a_name_matches_by_its_letters_not_its_symbols(self):
+        """The invariant. A short nickname matched eleven contacts, the one
+        meant among them saved as the nickname plus an emoji, so a count
+        over nine years of messages counted nothing."""
+        labels = dict(LABELS, **{"+15550005555": "dot \U0001F31F",
+                                 "+15550006666": "Dot Hollis",
+                                 "+15550007777": "Zo\u00eb O'Brien"})
+        for asked, handles in (("dot", ["+15550005555"]),
+                               ("DOT", ["+15550005555"]),
+                               ("zoe obrien", ["+15550007777"]),
+                               ("Zo\u00eb O\u2019Brien", ["+15550007777"])):
+            with self.subTest(asked=asked):
+                self.assertEqual(stats.resolve(asked, labels, "messages")[0], handles)
+
+    def test_a_partial_name_matches_only_at_a_word_start(self):
+        """The invariant. Three of eleven matches held the asked name only
+        inside a word, names nobody asking for it means."""
+        inside = {"+15550008881": "Pascal Ortega", "+15550008882": "Rascal Bay",
+                  "+15550008883": "Technical Support"}
+        labels = dict(inside, **{"+15550008884": "Calvin Reed",
+                                 "+15550008885": "Calla Moss"})
+        handles, _, candidates = stats.resolve("cal", labels, "messages")
+        self.assertEqual(handles, [])
+        self.assertEqual(candidates, ["Calla Moss", "Calvin Reed"])
+        for name in inside.values():
+            with self.subTest(name=name):
+                self.assertNotIn(name, candidates)
+
 
 class TestFolds(unittest.TestCase):
     def test_the_longest_gap_counts_the_silent_days_between_two_active_days(self):
@@ -206,11 +237,94 @@ class TestCountQuery(unittest.TestCase):
         self.assertEqual(conn.log, [])
         self.assertEqual(result["handles"], [])
 
-    def test_an_ambiguous_person_runs_no_query_and_names_the_candidates(self):
-        conn = Conn()
+    def test_an_ambiguous_person_runs_one_bound_candidate_query_and_no_count(self):
+        conn = Conn([{"label": "Jen Smith", "messages": 3},
+                     {"label": "Jenny Carter", "messages": 5}])
         result = stats.run(conn, {"metric": "count", "with": "jen"}, LABELS, TZ)
-        self.assertEqual(conn.log, [])
-        self.assertEqual(result["candidates"], ["Jen Smith", "Jenny Carter"])
+        self.assertEqual(len(conn.log), 1)
+        sql, params = conn.log[0]
+        self.assertIn("unnest(%(shown)s::text[], %(handles)s::text[])", sql)
+        self.assertNotIn("Jen Smith", sql)
+        self.assertEqual(params["shown"], ["Jen Smith", "Jenny Carter"])
+        self.assertEqual(params["handles"], ["+15550003333", "+15550004444"])
+        self.assertEqual(result["handles"], [])
+        self.assertEqual(result["candidates"],
+                         [{"label": "Jenny Carter", "messages": 5},
+                          {"label": "Jen Smith", "messages": 3}])
+
+    def test_a_name_with_no_messages_yields_to_the_one_with_messages(self):
+        """The invariant. A contact with no message in the source cannot be
+        the person a count asks about, so it never makes a name unclear."""
+        rows = [{"period": "2021", "sent_direct": 1, "received_direct": 1,
+                 "sent_group": 0, "received_group": 0, "excluded": 0}]
+        conn = Conn([{"label": "Jenny Carter", "messages": 5}], rows,
+                    [{"day": "2021-05-03"}], [])
+        result = stats.run(conn, {"metric": "count", "with": "jen"}, LABELS, TZ)
+        self.assertEqual(result["label"], "Jenny Carter")
+        self.assertEqual(result["handles"], ["+15550004444"])
+        self.assertEqual(result["absent"], ["Jen Smith"])
+        text = stats.render(result, today=dt.date(2026, 10, 26), tz=TZ)
+        self.assertIn('"jen" also matches Jen Smith, with no message in messages.', text)
+        self.assertIn("2021 | 1 | 1 | 0 | 0 | 1", text)
+
+    def test_names_that_all_lack_messages_say_that_none_has_one(self):
+        result = stats.run(Conn([]), {"metric": "count", "with": "jen"}, LABELS, TZ)
+        self.assertEqual(stats.ask_back(result),
+                         '"jen" matches Jen Smith, Jenny Carter, and none of them '
+                         'has a message in messages.')
+
+    def test_a_count_states_its_active_days_in_total_and_per_period(self):
+        """The invariant. "On how many days did I text her" had no number
+        anywhere, so the model counted the dates of eight screenshots and
+        answered six."""
+        rows = [{"period": "2021", "sent_direct": 4, "received_direct": 2,
+                 "sent_group": 0, "received_group": 0, "excluded": 0},
+                {"period": "2022", "sent_direct": 1, "received_direct": 0,
+                 "sent_group": 0, "received_group": 0, "excluded": 0}]
+        days = [{"day": "2021-05-03"}, {"day": "2021-05-04"}, {"day": "2022-06-07"}]
+        conn = Conn(rows, days, [{"day": "2026-08-15"}])
+        result = stats.run(conn, {"metric": "count", "with": "ada lovelace"},
+                           LABELS, TZ)
+        self.assertEqual(result["days"], 3)
+        self.assertEqual(result["active"], {"2021": 2, "2022": 1})
+        text = stats.render(result, today=dt.date(2026, 10, 26), tz=TZ)
+        self.assertIn("\nActive days 3 of the 401 days from first to last. ", text)
+        self.assertIn("period | sent direct | received direct | sent group | "
+                      "received group | active days", text)
+        self.assertIn("2021 | 4 | 2 | 0 | 0 | 2", text)
+        self.assertIn("2022 | 1 | 0 | 0 | 0 | 1", text)
+
+    def test_a_count_names_the_day_its_store_ends(self):
+        conn = Conn([], [{"day": "2021-05-03"}], [{"day": "2026-08-15"}])
+        result = stats.run(conn, {"metric": "count", "by": "all"}, LABELS, TZ)
+        sql, params = conn.log[2]
+        self.assertIn("max(occurred_at)", sql)
+        self.assertEqual(params["source"], "messages")
+        self.assertIn("The messages store ends on 2026-08-15: the export holds "
+                      "nothing later.",
+                      stats.render(result, today=dt.date(2026, 10, 26), tz=TZ))
+
+    def test_the_question_dates_bound_every_count_statement_in_the_local_zone(self):
+        """The invariant. "Since January 2017" must bound the count the
+        table reports, in the owner's days, not UTC's."""
+        denver = zoneinfo.ZoneInfo("America/Denver")
+        dates = retrieve.DateFilter("2019-01-01", "2020-01-01", "2019")
+        for call in ({"metric": "count", "with": "ada lovelace"},
+                     {"metric": "count", "by": "all"}):
+            with self.subTest(call=call):
+                conn = Conn([], [], [])
+                result = stats.run(conn, call, LABELS, denver, dates=dates)
+                counted = [(sql, params) for sql, params in conn.log
+                           if "max(occurred_at)" not in sql]
+                self.assertEqual(len(counted), 2)
+                for sql, params in counted:
+                    self.assertIn("e.occurred_at >= %(since)s AND "
+                                  "e.occurred_at < %(until)s", sql)
+                    self.assertEqual(params["since"], "2019-01-01T07:00:00+00:00")
+                    self.assertEqual(params["until"], "2020-01-01T07:00:00+00:00")
+                self.assertEqual(result["window"], ("2019-01-01", "2020-01-01"))
+                text = stats.render(result, today=dt.date(2026, 10, 26), tz=denver)
+                self.assertIn("from 2019-01-01 until 2020-01-01", text.splitlines()[0])
 
 
 class TestTopQuery(unittest.TestCase):
@@ -238,6 +352,18 @@ class TestTopQuery(unittest.TestCase):
         self.assertIn("e.occurred_at >= %(since)s", sql)
         self.assertEqual(params["since"], "2019-01-01T07:00:00+00:00")
         self.assertEqual(params["until"], "2020-01-01T07:00:00+00:00")
+
+    def test_a_top_call_with_no_year_takes_the_question_dates(self):
+        dates = retrieve.DateFilter("2020-01-01", "2026-10-27", "since 2020")
+        conn = Conn([])
+        result = stats.run(conn, {"metric": "top"}, LABELS, TZ, dates=dates)
+        sql, params = conn.log[0]
+        self.assertIn("e.occurred_at >= %(since)s", sql)
+        self.assertEqual(params["since"], "2020-01-01T00:00:00+00:00")
+        self.assertEqual(result["window"], ("2020-01-01", "2026-10-27"))
+        conn = Conn([])
+        stats.run(conn, {"metric": "top", "year": 2019}, LABELS, TZ, dates=dates)
+        self.assertEqual(conn.log[0][1]["since"], "2019-01-01T00:00:00+00:00")
 
     def test_the_rank_follows_the_direction(self):
         for direction, order in (("sent", "ORDER BY sent DESC"),
@@ -513,6 +639,42 @@ class TestGather(unittest.TestCase):
         self.assertEqual(conn.rollbacks, 1)
         self.assertIn("no such table", json.loads(trace["plan"])["error"])
 
+    def test_an_unresolved_person_becomes_the_ask_back_and_leaves_the_source_clean(self):
+        call = stats.validate({"metric": "count", "with": "jen"})
+
+        def hit(conn, c, **kw):
+            return dict(_hit(), ask='"jen" matches several contacts.')
+        hits, trace, _, _, _ = self.gather(
+            lambda q: stats.Plan([call], "[...]", 5, None), hit=hit)
+        self.assertNotIn("ask", hits[0])
+        self.assertEqual(trace["ask_back"], '"jen" matches several contacts. [1]')
+        self.assertEqual(json.loads(trace["plan"])["ask_back"], trace["ask_back"])
+
+    def test_one_date_range_reaches_the_tables_and_the_search(self):
+        """The invariant. The table and the retrieved chunks must read the
+        same period, or the answer mixes two."""
+        seen = {}
+
+        def search_traced(question, conn, embedder, k=8, pool=50, source=None,
+                          today=None, dates=None):
+            seen["search"] = dates
+            return [], dates, {"dense": [], "sparse": [], "fused": [],
+                               "dense_n": 0, "sparse_n": 0, "fused_n": 0}
+
+        def hit(conn, call, tz=None, today=None, dates=None):
+            seen["table"] = dates
+            return _hit()
+        call = stats.validate({"metric": "count", "with": "Ada"})
+        with mock.patch.object(retrieve, "search_traced", search_traced), \
+             mock.patch.object(stats, "hit", hit):
+            _, dates, _ = stats.gather(
+                "since January 2019, on how many days did I text Ada", Conn(),
+                lambda t: [0.0], planner=lambda q: stats.Plan([call], "[...]", 5, None),
+                today=dt.date(2026, 10, 26))
+        self.assertEqual(seen["table"], seen["search"])
+        self.assertEqual((seen["table"].since, seen["table"].until),
+                         ("2019-01-01", "2026-10-27"))
+
     def test_k_never_drops_below_one(self):
         call = stats.validate({"metric": "count", "with": "Ada"})
         hits, trace, ks, _, _ = self.gather(
@@ -537,3 +699,79 @@ class TestHit(unittest.TestCase):
         self.assertEqual(len(saved), 1)
         self.assertEqual(saved[0][1][:2], [hit["ref"], hit["text"]])
         self.assertEqual(stats.ref(call, hit["text"]), hit["ref"])
+
+    def test_a_dated_hit_keys_its_ref_on_its_dates(self):
+        conn = Conn([], [], [{"day": "2021-05-03"}], [])
+        call = stats.validate({"metric": "count", "by": "all"})
+        dates = retrieve.DateFilter("2019-01-01", "2020-01-01", "2019")
+        hit = stats.hit(conn, call, tz=TZ, today=dt.date(2026, 10, 26), dates=dates)
+        self.assertIn("since=2019-01-01", hit["ref"])
+        self.assertIn("until=2020-01-01", hit["ref"])
+        self.assertNotIn("ask", hit)
+
+    def test_an_unclear_person_carries_its_ask_back(self):
+        conn = Conn([{"handle": "+15550003333", "label": "Jen Smith"},
+                     {"handle": "+15550004444", "label": "Jenny Carter"}],
+                    [{"label": "Jen Smith", "messages": 3},
+                     {"label": "Jenny Carter", "messages": 5}])
+        call = stats.validate({"metric": "count", "with": "jen"})
+        hit = stats.hit(conn, call, tz=TZ, today=dt.date(2026, 10, 26))
+        self.assertEqual(hit["ask"],
+                         '"jen" matches several contacts in messages: Jenny Carter '
+                         '(5 messages), Jen Smith (3 messages). Each number counts '
+                         'the messages in threads that include that contact. Ask '
+                         'again with one of these names.')
+        self.assertIn(hit["ask"] + " This call counted nothing.", hit["text"])
+
+
+@contextlib.contextmanager
+def _no_db():
+    yield object()
+
+
+ASK = '"jen" matches several contacts in messages: Jenny Carter (5 messages). [1]'
+
+
+def _cli_ask():
+    with contextlib.redirect_stdout(io.StringIO()) as out, \
+         contextlib.redirect_stderr(io.StringIO()):
+        cli.main(["ask", "jen"])
+    return out.getvalue().strip()
+
+
+def _stream_ask():
+    frames = list(serve.stream_ask({"question": "jen"}))
+    return json.loads(frames[-1].split("data: ", 1)[1])["answer"]
+
+
+ASK_PATHS = (
+    ("recall ask", _cli_ask),
+    ("POST /ask", lambda: serve.handle_ask({"question": "jen"})["answer"]),
+    ("POST /ask/stream", _stream_ask),
+    ("eval run", lambda: evalrun.ask_one("jen", lambda t: [0.0])[0]),
+)
+
+
+class TestAskBack(unittest.TestCase):
+    def test_every_ask_path_answers_an_unclear_name_without_the_model(self):
+        """The invariant. A table that said "ask again with one of these
+        names" reached the model, and the model counted six days from eight
+        screenshots instead. Code answers an unclear name on every path."""
+        trace = {"dense": [], "sparse": [], "fused": [(_hit()["ref"], 1.0)],
+                 "dense_n": 0, "sparse_n": 0, "fused_n": 1, "ask_back": ASK}
+        logged = []
+
+        def refuse(*a, **kw):
+            raise AssertionError("the model was called")
+        with mock.patch.object(stats, "gather",
+                               return_value=([_hit()], retrieve.NO_DATES, trace)), \
+             mock.patch.object(answer, "chat", refuse), \
+             mock.patch.object(answer, "chat_stream", refuse), \
+             mock.patch.object(config, "CHAT_URL", "http://x/v1"), \
+             mock.patch.object(querylog, "log", lambda **kw: logged.append(kw) or 1), \
+             mock.patch.object(db, "connect", _no_db):
+            for name, ask in ASK_PATHS:
+                with self.subTest(path=name):
+                    logged.clear()
+                    self.assertEqual(ask(), ASK)
+                    self.assertEqual(logged[-1]["answer"], ASK)

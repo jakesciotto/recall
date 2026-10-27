@@ -369,6 +369,22 @@ the object replacement character; a classifier that read the body as text
 called every one of them a text. Strip the placeholder before deciding what
 a message is. See docs/answering.md.
 
+**A table that asks the model to ask the user is not an answer.** The
+store held nine years of daily messages with the contact the owner meant
+by a short nickname. The resolver matched the nickname inside eleven
+names, three of them mid-word, so the
+count stopped and its table said "ask again with one of these names". The
+model read past that line and counted the dates of the eight screenshots
+retrieval found: "six different days". Three fixes, each its own rule:
+compare names folded and match a partial name only at a word start; drop a
+match with no message in the source; and when a name is still unclear,
+let code write the answer and call no model. A sentence in a source is a
+request, and a model can decline any request. The same three questions
+also showed "since January 2017" read as January 2017 alone, and a table
+that counted all time beside chunks from one month. Read the query log
+before the code: the plan, the stored table and the cited sources showed
+all four faults in one screen. See docs/answering.md.
+
 ## Ingestion
 
 **Decide exclusions before ingesting, not after.** A filter anchored to a

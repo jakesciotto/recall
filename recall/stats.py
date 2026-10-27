@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 import time
+import unicodedata
 import urllib.parse
 
 from . import config, contacts, db, retrieve, trends
@@ -32,6 +33,7 @@ EXCLUDED = ("tapback", "system", "empty")
 MAX_N = 25
 MAX_CALLS = 3
 MAX_PERSON = 200
+MAX_CANDIDATES = 10
 YEARS = (1990, 2100)
 MIN_GAP_DAYS = 30          # a gap is listed for a person with this many active days
 CONTACTS = "contacts"      # the alias source the ingest writes the vCard map under
@@ -107,11 +109,13 @@ def validate(call):
     return out
 
 
-def ref(call, text):
+def ref(call, text, window=None):
     """stats:<metric>?<args>#<digest>. The digest is of the rendered text,
     so the judge reads what the answerer read, and an unchanged store
     writes no second row."""
     args = {k: v for k, v in call.items() if k != "metric" and v is not None}
+    if window:
+        args["since"], args["until"] = window
     query = urllib.parse.urlencode(sorted(args.items()))
     digest = hashlib.md5(text.encode("utf-8")).hexdigest()[:8]
     return f"stats:{call['metric']}?{query}#{digest}"
@@ -127,17 +131,46 @@ def labels(conn, source):
     return {r["handle"]: r["label"] for r in rows}
 
 
+_APOSTROPHES = str.maketrans("", "", "'\u2019")
+
+
+def fold(text):
+    text = unicodedata.normalize("NFKD", text or "").translate(_APOSTROPHES)
+    kept = "".join(ch if ch.isalnum() else " " for ch in text
+                   if not unicodedata.combining(ch))
+    return " ".join(kept.casefold().split())
+
+
+def names(labels):
+    folded = {}
+    for handle, text in labels.items():
+        key = fold(text)
+        if key:
+            shown, handles = folded.setdefault(key, (set(), set()))
+            shown.add(text)
+            handles.add(handle)
+    return {key: (" / ".join(sorted(shown)), sorted(handles))
+            for key, (shown, handles) in folded.items()}
+
+
 def resolve(name, labels, source):
     """(handles, label, candidates) for a person named in a question.
 
-    A name owns every identifier mapped to it. Exact match first, then a
-    substring; several names matching the substring is a question back
-    to the asker, never a guess. A raw identifier passes through: a phone
-    number is normalised the way the store holds it, except for twitter,
-    where a run of digits is an account id.
+    A name owns every identifier mapped to it. Names compare folded: case,
+    accents, emoji and punctuation do not count. An exact folded name
+    first, then a name with a word that starts with the question's name;
+    several such names is a question back to the asker, never a guess. A
+    raw identifier passes through: a phone number is normalised the way
+    the store holds it, except for twitter, where a run of digits is an
+    account id.
     """
     want = (name or "").strip()
     low = want.lower()
+    named = names(labels)
+    key = fold(want)
+    if key in named:
+        shown, handles = named[key]
+        return handles, shown, []
     by_label = collections.defaultdict(list)
     shown = {}
     for handle, text in labels.items():
@@ -155,10 +188,12 @@ def resolve(name, labels, source):
     phone = contacts.normalize_phone(want) if re.search(r"\d{7}", re.sub(r"\D", "", want)) else None
     if phone:
         return [phone], labels.get(phone, phone), []
-    hits = sorted(text for text in by_label if low and low in text)
+    start = re.compile(r"(?:^| )" + re.escape(key)) if key else None
+    hits = sorted(k for k in named if start and start.search(k))
     if len(hits) == 1:
-        return sorted(by_label[hits[0]]), shown[hits[0]], []
-    return [], want, [shown[h] for h in hits]
+        shown, handles = named[hits[0]]
+        return handles, shown, []
+    return [], want, [named[k][0] for k in hits]
 
 
 # ---- folds ------------------------------------------------------------------
@@ -203,14 +238,14 @@ SELECT {{period}} AS period,
                         AND e.sender = ANY(%(handles)s::text[])) AS received_group,
        count(*) FILTER (WHERE NOT {_COUNTED}) AS excluded
 FROM event e JOIN t ON t.thread = e.thread
-WHERE e.source = %(source)s
+WHERE e.source = %(source)s{{bounds}}
 GROUP BY 1 ORDER BY 1"""
 
 _DAYS_WITH = _WITH + f"""
 SELECT DISTINCT (e.occurred_at AT TIME ZONE %(tz)s)::date AS day
 FROM event e JOIN t ON t.thread = e.thread
 WHERE e.source = %(source)s AND {_COUNTED}
-  AND (t.direct OR e.sender = ANY(%(handles)s::text[]))
+  AND (t.direct OR e.sender = ANY(%(handles)s::text[])){{bounds}}
 ORDER BY 1"""
 
 _COUNT_ALL = f"""
@@ -219,13 +254,13 @@ SELECT {{period}} AS period,
        count(*) FILTER (WHERE {_COUNTED} AND NOT e.mine) AS received,
        count(*) FILTER (WHERE NOT {_COUNTED}) AS excluded
 FROM event e
-WHERE e.source = %(source)s
+WHERE e.source = %(source)s{{bounds}}
 GROUP BY 1 ORDER BY 1"""
 
 _DAYS_ALL = f"""
 SELECT DISTINCT (e.occurred_at AT TIME ZONE %(tz)s)::date AS day
 FROM event e
-WHERE e.source = %(source)s AND {_COUNTED}
+WHERE e.source = %(source)s AND {_COUNTED}{{bounds}}
 ORDER BY 1"""
 
 # Members resolve to their label inside the query, so a person with a
@@ -261,6 +296,22 @@ SELECT * FROM (
 
 _BOUNDS = " AND e.occurred_at >= %(since)s AND e.occurred_at < %(until)s"
 
+_CANDIDATES = f"""
+WITH c AS (
+  SELECT * FROM unnest(%(shown)s::text[], %(handles)s::text[]) AS c(label, handle)
+),
+t AS (
+  SELECT DISTINCT c.label, th.thread
+  FROM c JOIN thread th ON th.source = %(source)s AND th.members @> ARRAY[c.handle]
+)
+SELECT t.label, count(*) AS messages
+FROM t JOIN event e ON e.source = %(source)s AND e.thread = t.thread
+WHERE {_COUNTED}
+GROUP BY 1"""
+
+_END = ("SELECT (max(occurred_at) AT TIME ZONE %(tz)s)::date AS day "
+        "FROM event WHERE source = %(source)s")
+
 _STREAK_DAYS = _MEMBERS + f"""
 SELECT m.who, (e.occurred_at AT TIME ZONE %(tz)s)::date AS day
 FROM s e JOIN m ON m.thread = e.thread
@@ -273,29 +324,78 @@ def _zone_name(tz):
 
 
 def _base(call, labels):
-    return {"call": call, "label": None, "handles": [], "candidates": []}
+    return {"call": call, "label": None, "handles": [], "candidates": [],
+            "absent": [], "window": None}
 
 
-def _count(conn, call, labels, tz):
+def _window(dates):
+    if dates is None or not dates.since:
+        return None
+    return dates.since, dates.until
+
+
+def _local(day, tz):
+    start = dt.datetime.combine(dt.date.fromisoformat(day), dt.time(), tzinfo=tz)
+    return start.astimezone(dt.timezone.utc).isoformat()
+
+
+def _narrow(conn, source, asked, candidates, labels):
+    by_shown = {shown: handles for shown, handles in names(labels).values()}
+    pairs = [(c, h) for c in candidates for h in by_shown.get(c, [])]
+    rows = db.fetch(conn, _CANDIDATES,
+                    {"source": source, "excluded": list(EXCLUDED),
+                     "shown": [c for c, _ in pairs], "handles": [h for _, h in pairs]})
+    counts = {r["label"]: int(r["messages"] or 0) for r in rows}
+    live = sorted((c for c in candidates if counts.get(c)),
+                  key=lambda c: (-counts[c], c))
+    absent = [c for c in candidates if not counts.get(c)]
+    if len(live) == 1:
+        return by_shown[live[0]], live[0], [], absent
+    return [], asked, [{"label": c, "messages": counts[c]} for c in live], absent
+
+
+def _key(day, by):
+    return {"year": f"{day.year}", "month": f"{day.year}-{day.month:02d}",
+            "all": "all"}[by]
+
+
+def _count(conn, call, labels, tz, dates=None):
     out = _base(call, labels)
     params = {"source": call["source"], "tz": _zone_name(tz),
               "excluded": list(EXCLUDED)}
     if call["with"]:
         handles, shown, candidates = resolve(call["with"], labels, call["source"])
-        out.update(label=shown, handles=handles, candidates=candidates)
+        absent = []
+        if candidates:
+            handles, shown, candidates, absent = _narrow(
+                conn, call["source"], shown, candidates, labels)
+        out.update(label=shown, handles=handles, candidates=candidates,
+                   absent=absent)
         if not handles:
             return out
         params["handles"] = handles
         rows_sql, days_sql = _COUNT_WITH, _DAYS_WITH
     else:
         rows_sql, days_sql = _COUNT_ALL, _DAYS_ALL
-    out["rows"] = db.fetch(conn, rows_sql.format(period=_PERIOD[call["by"]]), params)
-    days = [_day(r["day"]) for r in db.fetch(conn, days_sql, params)]
+    bounds = ""
+    window = _window(dates)
+    if window:
+        params["since"], params["until"] = (_local(d, tz) for d in window)
+        bounds = _BOUNDS
+        out["window"] = window
+    out["rows"] = db.fetch(conn, rows_sql.format(period=_PERIOD[call["by"]],
+                                                 bounds=bounds), params)
+    days = [_day(r["day"]) for r in db.fetch(conn, days_sql.format(bounds=bounds),
+                                             params)]
     out["first"] = days[0] if days else None
     out["last"] = days[-1] if days else None
+    out["days"] = len(days)
+    out["active"] = dict(collections.Counter(_key(d, call["by"]) for d in days))
     out["streak"] = trends.longest_streak(days)
     out["gap"] = longest_gap(days)
     out["excluded"] = sum(int(r.get("excluded") or 0) for r in out["rows"])
+    end = db.fetch(conn, _END, params)
+    out["end"] = _day(end[0]["day"]) if end and end[0].get("day") else None
     return out
 
 
@@ -305,14 +405,19 @@ def _bounds(year, tz):
     return since.isoformat(), until.isoformat()
 
 
-def _top(conn, call, labels, tz):
+def _top(conn, call, labels, tz, dates=None):
     out = _base(call, labels)
     params = {"source": call["source"], "excluded": list(EXCLUDED),
               "contacts": CONTACTS, "short_code": SHORT_CODE, "limit": call["n"]}
     bounds = ""
+    window = _window(dates)
     if call["year"]:
         params["since"], params["until"] = _bounds(call["year"], tz)
         bounds = _BOUNDS
+    elif window:
+        params["since"], params["until"] = (_local(d, tz) for d in window)
+        bounds = _BOUNDS
+        out["window"] = window
     rows = db.fetch(conn, _TOP.format(bounds=bounds, rank=_RANK[call["direction"]]),
                     params)
     out["rows"] = [{"label": r["who"], "sent": int(r["sent"] or 0),
@@ -321,7 +426,7 @@ def _top(conn, call, labels, tz):
     return out
 
 
-def _streaks(conn, call, labels, tz):
+def _streaks(conn, call, labels, tz, dates=None):
     out = _base(call, labels)
     params = {"source": call["source"], "tz": _zone_name(tz),
               "excluded": list(EXCLUDED), "contacts": CONTACTS,
@@ -340,13 +445,35 @@ def _streaks(conn, call, labels, tz):
 _RUN = {"count": _count, "top": _top, "streaks": _streaks}
 
 
-def run(conn, call, labels, tz):
+def run(conn, call, labels, tz, dates=None):
     """The result of one call. Raises on a call outside the catalogue
-    before any query runs."""
+    before any query runs. The question's dates bound a count, and a top
+    call that names no year."""
     clean = validate(call)
     if clean is None:
         raise ValueError(f"not a call in the catalogue: {call!r}")
-    return _RUN[clean["metric"]](conn, clean, labels, tz)
+    return _RUN[clean["metric"]](conn, clean, labels, tz, dates=dates)
+
+
+def ask_back(result):
+    call = result["call"]
+    if call["metric"] != "count" or not call.get("with") or result["handles"]:
+        return None
+    asked, source = call["with"], call["source"]
+    candidates = result.get("candidates") or []
+    if candidates:
+        shown = candidates[:MAX_CANDIDATES]
+        more = len(candidates) - len(shown)
+        listed = ", ".join(f"{c['label']} ({c['messages']:,} messages)" for c in shown)
+        return (f'"{asked}" matches several contacts in {source}: {listed}'
+                + (f", and {more} more" if more > 0 else "")
+                + ". Each number counts the messages in threads that include "
+                "that contact. Ask again with one of these names.")
+    if result.get("absent"):
+        return (f'"{asked}" matches {", ".join(result["absent"])}, and none of '
+                f"them has a message in {source}.")
+    return (f'No contact or identifier matches "{asked}" in {source}. Ask again '
+            "with a full name, a phone number or an email address.")
 
 
 # ---- rendering --------------------------------------------------------------
@@ -375,12 +502,14 @@ def render(result, today=None, tz=None):
     zone = _zone_name(tz or trends.zone())
     source = call["source"]
     who = result.get("label")
+    window = result.get("window")
+    span = f", from {window[0]} until {window[1]}" if window else ""
     if call["metric"] == "count":
         head = (f"count, {source}" + (f" with {who}" if call.get("with") else "")
-                + f", by {call['by']}")
+                + f", by {call['by']}{span}")
     elif call["metric"] == "top":
         head = (f"top {call['n']}, {source}"
-                + (f", {call['year']}" if call.get("year") else ", all years")
+                + (f", {call['year']}" if call.get("year") else span or ", all years")
                 + f", by {call['direction']}")
     else:
         head = f"streaks, {source}"
@@ -389,16 +518,15 @@ def render(result, today=None, tz=None):
              f"per {OWN.get(source, 'message')[:-1] if source in OWN else 'message'} "
              f"in the export. Counts are exact. Tapbacks, system rows and empty "
              f"rows are not counted."]
+    if window:
+        lines.append(f"The question's dates bound this table: from {window[0]} up to, "
+                     f"not including, {window[1]}, in local days.")
     if call["metric"] == "count" and call.get("with") and not result["handles"]:
-        if result["candidates"]:
-            lines.append(f'"{call["with"]}" matches several contacts: '
-                         + ", ".join(result["candidates"])
-                         + ". Ask again with one of these names. This call "
-                         "counted nothing.")
-        else:
-            lines.append(f'No contact or identifier matches "{call["with"]}" in '
-                         f"{source}. This call counted nothing.")
+        lines.append(ask_back(result) + " This call counted nothing.")
         return "\n".join(lines)
+    if result.get("absent"):
+        lines.append(f'"{call["with"]}" also matches {", ".join(result["absent"])}, '
+                     f"with no message in {source}.")
     if call["metric"] == "count" and call.get("with") and not result["rows"]:
         lines.append(f"No messages with {who} in {source}: the store holds no "
                      f"message in any thread that includes {who}. A message in "
@@ -406,6 +534,7 @@ def render(result, today=None, tz=None):
         return "\n".join(lines)
     if call["metric"] == "count":
         rows = result["rows"]
+        active = result.get("active") or {}
         if call.get("with"):
             lines.append(f"With means a thread that includes {who}. Direct is the "
                          f"one-to-one thread; group is any thread with more members. "
@@ -413,26 +542,29 @@ def render(result, today=None, tz=None):
             sent = sum(r["sent_direct"] + r["sent_group"] for r in rows)
             received = sum(r["received_direct"] + r["received_group"] for r in rows)
             columns = ("period", "sent direct", "received direct", "sent group",
-                       "received group")
+                       "received group", "active days")
             keyed = [{"period": r["period"], "sent direct": r["sent_direct"],
                       "received direct": r["received_direct"],
                       "sent group": r["sent_group"],
-                      "received group": r["received_group"]} for r in rows]
+                      "received group": r["received_group"],
+                      "active days": active.get(r["period"], 0)} for r in rows]
             day_rule = (f"A day counts when either of you wrote in the direct "
                         f"thread or {who} wrote in a group.")
         elif source in OWN:
             noun = OWN[source]
             sent = sum(r["sent"] for r in rows)
             received = 0
-            columns = ("period", noun)
-            keyed = [{"period": r["period"], noun: r["sent"]} for r in rows]
+            columns = ("period", noun, "active days")
+            keyed = [{"period": r["period"], noun: r["sent"],
+                      "active days": active.get(r["period"], 0)} for r in rows]
             day_rule = f"A day counts when you posted. Retweets count as {noun}."
         else:
             sent = sum(r["sent"] for r in rows)
             received = sum(r["received"] for r in rows)
-            columns = ("period", "sent", "received")
+            columns = ("period", "sent", "received", "active days")
             keyed = [{"period": r["period"], "sent": r["sent"],
-                      "received": r["received"]} for r in rows]
+                      "received": r["received"],
+                      "active days": active.get(r["period"], 0)} for r in rows]
             day_rule = "A day counts when any message was sent or received."
         total = (f"Total {sent:,} {OWN[source]}" if source in OWN else
                  f"Total {sent + received:,}: sent {sent:,}, received {received:,}")
@@ -441,8 +573,18 @@ def render(result, today=None, tz=None):
         lines.append(f"{total}; excluded {result['excluded']:,}.")
         lines.append(f"First {result['first']}, last {result['last']}."
                      if result["first"] else "No dated messages.")
+        if result.get("end"):
+            lines.append(f"The {source} store ends on {result['end']}: the export "
+                         f"holds nothing later.")
+        days = result.get("days") or 0
+        if result["first"]:
+            calendar = (result["last"] - result["first"]).days + 1
+            lines.append(f"Active days {days:,} of the {calendar:,} days from first "
+                         f"to last. {day_rule}")
+        else:
+            lines.append(f"Active days 0. {day_rule}")
         lines.append(f"Longest daily streak {_span(result['streak'], 'day')}.")
-        lines.append(f"Longest gap {_span(result['gap'], 'silent day')}. {day_rule}")
+        lines.append(f"Longest gap {_span(result['gap'], 'silent day')}.")
         # One period is two sentences, not a one-row table: a model once
         # crossed the columns of such a table.
         if call["by"] == "all" and len(rows) == 1:
@@ -487,7 +629,7 @@ def render(result, today=None, tz=None):
 PLANNER = """You turn a question about a personal archive into calls on its structured store, or decline.
 
 The store counts messages (Apple Messages: texts and iMessages), email, twitter (direct messages), and tweets (the user's own tweets, with no other person). Each call is one JSON object:
-- {"metric": "count", "source": "messages|email|twitter|tweets", "with": "<person's name as written in the question, or null>", "by": "year|month|all"}: how many were sent and received, per period, in threads with the person, or in every thread when with is null. Use it for how many, how often, over time, did I ever message, when did we start or stop, first or last message with someone.
+- {"metric": "count", "source": "messages|email|twitter|tweets", "with": "<person's name as written in the question, or null>", "by": "year|month|all"}: how many were sent and received, per period, in threads with the person, or in every thread when with is null, with the number of active days. Use it for how many, how often, on how many days, over time, did I ever message, when did we start or stop, first or last message with someone. Code applies any dates in the question to the count, so never leave out a count because the question names dates.
 - {"metric": "top", "source": "messages|email|twitter", "year": <four digit year, or null for all years>, "direction": "sent|received|all", "n": <1 to 25>}: the people with the most messages. Use it for who did I message most, top contacts, who filled my inbox, who sent me the most.
 - {"metric": "streaks", "source": "messages|email|twitter", "n": <1 to 25>}: the longest daily streaks and the longest gaps per person. Use it for longest streak, longest unbroken run, longest gap or silence.
 
@@ -495,7 +637,7 @@ Rules:
 1. Answer with a JSON array of at most 3 calls, or the word null. No prose, no code fence.
 2. texts, iMessages or messages mean messages. mail or email means email. DMs or twitter means twitter. tweets or tweeting means tweets, and a tweets call never names a person. When the question names no channel, use messages.
 3. over time means by year. A question that compares years makes one call per year.
-4. Any question about how many, how often, when first or last, which share in groups against one-to-one, or whether any message exists with a named person is a count call with that person. The count answers all of those at once.
+4. Any question about how many, how often, on how many days, when first or last, which share in groups against one-to-one, or whether any message exists with a named person is a count call with that person. The count answers all of those at once.
 5. A question about what was said, what a message or a document contains, or anything the store cannot count, is null.
 6. A question that mixes a count with something the store cannot answer still gets the count call. Retrieval covers the rest.
 
@@ -508,6 +650,8 @@ Question: how many messages have I exchanged with Bo in group chats compared wit
 [{"metric": "count", "source": "messages", "with": "Bo", "by": "all"}]
 Question: did I ever message Ada?
 [{"metric": "count", "source": "messages", "with": "Ada", "by": "all"}]
+Question: since January 2019, on how many days did I text Bo?
+[{"metric": "count", "source": "messages", "with": "Bo", "by": "all"}]
 Question: whom did I text most in 2019, and whom in 2021?
 [{"metric": "top", "source": "messages", "year": 2019, "direction": "all", "n": 3}, {"metric": "top", "source": "messages", "year": 2021, "direction": "all", "n": 3}]
 Question: who sent me the most email in 2021?
@@ -564,15 +708,21 @@ def plan(question, chat=None):
         return Plan([], raw, ms, f"ValueError: {e}")
 
 
-def hit(conn, call, tz=None, today=None):
-    """One source: the call run, rendered and kept under its ref."""
+def hit(conn, call, tz=None, today=None, dates=None):
+    """One source: the call run, rendered and kept under its ref. A count
+    whose person did not resolve also carries the ask-back under "ask",
+    which gather takes off before the source reaches anyone."""
     tz = tz or trends.zone()
-    result = run(conn, call, labels(conn, call["source"]), tz)
+    result = run(conn, call, labels(conn, call["source"]), tz, dates=dates)
     text = render(result, today=today, tz=tz)
-    key = ref(call, text)
+    key = ref(call, text, result.get("window"))
     db.save_computed(conn, key, text, call["source"])
-    return {"ref": key, "text": text, "occurred_at": None,
-            "source": call["source"], "path": None, "score": 1.0}
+    source = {"ref": key, "text": text, "occurred_at": None,
+              "source": call["source"], "path": None, "score": 1.0}
+    ask = ask_back(result)
+    if ask:
+        source["ask"] = ask
+    return source
 
 
 def gather(question, conn, embedder, k=retrieve.TOP_K, source=None, today=None,
@@ -586,15 +736,21 @@ def gather(question, conn, embedder, k=retrieve.TOP_K, source=None, today=None,
     goes into the trace and retrieval runs as it always did.
     """
     planner = planner or plan
+    today = today or dt.date.today()
+    dates = retrieve.parse_dates(question, today)
     try:
         asked = planner(question)
     except Exception as e:
         asked = Plan([], None, 0, f"{type(e).__name__}: {e}")
     errors = [asked.error] if asked.error else []
-    extras = []
+    extras, asks = [], []
     for call in asked.calls:
         try:
-            extras.append(hit(conn, call, tz=tz, today=today))
+            table = hit(conn, call, tz=tz, today=today, dates=dates)
+            ask = table.pop("ask", None)
+            if ask:
+                asks.append(f"{ask} [{len(extras) + 1}]")
+            extras.append(table)
         except Exception as e:
             # A failed statement leaves the connection in an aborted
             # transaction, and every later statement would fail with it.
@@ -605,10 +761,13 @@ def gather(question, conn, embedder, k=retrieve.TOP_K, source=None, today=None,
             errors.append(f"{type(e).__name__}: {e}")
     hits, dates, trace = retrieve.search_traced(
         question, conn, embedder, k=max(1, k - len(extras)), source=source,
-        today=today)
+        today=today, dates=dates)
     note = {"calls": asked.calls, "raw": asked.raw}
     if errors:
         note["error"] = "; ".join(errors)
+    trace["ask_back"] = " ".join(asks) if asks else None
+    if asks:
+        note["ask_back"] = trace["ask_back"]
     trace["plan"] = json.dumps(note, default=str) if asked.calls or errors else None
     trace["plan_ms"] = asked.ms
     trace["fused"] = [(h["ref"], 1.0) for h in extras] + list(trace["fused"])
