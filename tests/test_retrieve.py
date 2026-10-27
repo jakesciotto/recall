@@ -82,7 +82,7 @@ class TestParseDates(unittest.TestCase):
         """"Since January 2017" filtered to January 2017 alone, so three
         questions about nine years searched one month."""
         for question, since in (
-                ("since January 2017 how many days did I text cal", "2017-01-01"),
+                ("since January 2017 how many days did I text Ada", "2017-01-01"),
                 ("how many texts since 2019", "2019-01-01"),
                 ("whom did I text since spring 2020", "2020-03-01"),
                 ("since 2021-02-03 who emailed me", "2021-02-03")):
@@ -120,8 +120,8 @@ class TestParseDates(unittest.TestCase):
         self.assertEqual(f, retrieve.parse_dates("in 2021", TODAY))
 
     def test_since_a_written_day_runs_to_the_end_of_today(self):
-        for question in ("since january 17 2017 how many days did I text cal",
-                         "Since January 17, 2017 to today how many days did I text cal"):
+        for question in ("since january 17 2017 how many days did I text Ada",
+                         "Since January 17, 2017 to today how many days did I text Ada"):
             with self.subTest(question=question):
                 f = retrieve.parse_dates(question, TODAY)
                 self.assertEqual((f.since, f.until), ("2017-01-17", "2026-08-18"))
