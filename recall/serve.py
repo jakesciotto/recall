@@ -79,7 +79,10 @@ def handle_ask(body):
     text = None
     meta = {}
     prompt = answer.build_prompt(question, hits)
-    if not body.get("sources_only") and config.CHAT_URL:
+    settled = None if body.get("sources_only") else trace.get("ask_back")
+    if settled:
+        text = settled
+    elif not body.get("sources_only") and config.CHAT_URL:
         text = answer.chat(prompt, meta=meta)
     _log(body, question, k, hits, dates, trace, prompt, answer=text,
          meta=meta, streamed=False, total_ms=_ms(started))
@@ -99,6 +102,14 @@ def stream_ask(body):
         question, k, hits, dates, trace = _search(body, conn)
     yield sse("sources", {"sources": hits, "date_filter": _payload(dates)})
     prompt = answer.build_prompt(question, hits)
+    settled = trace.get("ask_back")
+    if settled:
+        yield sse("token", {"t": settled})
+        _log(body, question, k, hits, dates, trace, prompt, answer=settled,
+             meta={}, streamed=True, first_token_ms=_ms(started),
+             total_ms=_ms(started))
+        yield sse("done", {"answer": settled, "answer_blocks": render.blocks(settled)})
+        return
     if not config.CHAT_URL:
         _log(body, question, k, hits, dates, trace, prompt, answer=None,
              meta={}, streamed=True, total_ms=_ms(started))

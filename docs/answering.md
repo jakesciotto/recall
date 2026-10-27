@@ -68,7 +68,7 @@ Three metrics run over it, and code owns every query:
 
 | metric | arguments | what it says |
 |---|---|---|
-| `count` | `source`, `with` (a person or none), `by` (`year`, `month`, `all`) | sent and received per period, in the direct thread and in groups, with first, last, longest streak and longest gap. For `tweets` one column, the user's own tweets, with the same streak and gap |
+| `count` | `source`, `with` (a person or none), `by` (`year`, `month`, `all`) | sent and received per period, in the direct thread and in groups, with first, last, active days, longest streak, longest gap and the day the store ends. For `tweets` one column, the user's own tweets, with the same days, streak and gap |
 | `top` | `source`, `year` (or none), `direction`, `n` | the people with the most messages |
 | `streaks` | `source`, `n` | the longest daily streaks and gaps per person |
 
@@ -100,9 +100,25 @@ that fails, costs nothing: the ask runs as before and the log records
 the error in `query_log.plan`.
 
 A person resolves through the contacts map, so a name owns every
-identifier mapped to it. Several names matching a substring is a
-question back to the asker, never a guess, and the table says so. A
-phone number, an email address or a Twitter id passes through as it is.
+identifier mapped to it. Names compare folded: case, accents, emoji and
+punctuation do not count, so "dot" is the exact name of a contact saved
+as "dot" with an emoji after it. Without an exact name, a partial name
+matches only at the start of a word: "cal" finds Calvin, never Pascal,
+Rascal or Technical Support. A phone number, an email
+address or a Twitter id passes through as it is.
+
+Several names that match is a question back to the asker, never a guess.
+One query counts the messages of each match, and a match with no message
+in the source drops out, because it cannot be the person the question
+means. When exactly one match is left, the count runs for it and the
+table names the others. When more are left, code writes the answer, not
+the model: the matching names, each with its message count, and a
+request to ask again with one name. That answer cites the table and
+makes no model call. The table once said "ask again" and the model
+ignored it: it counted the dates of eight screenshots and answered "six
+days" for a contact with nine years of daily messages. The trade-off:
+a question that also asks about content gets no content answer until the
+asker names one person.
 
 What the numbers mean, stated once here and again in every table.
 "With" means a thread that includes the person. Direct is the
@@ -123,8 +139,26 @@ examples and the rule that a mixed question still gets its count, a
 twelve-question bench (eight counts, four content questions) planned
 12 of 12. A planner is a model, so it is measured, not trusted: the
 bench is a live test, `TestPlannerBench` in `tests/test_stats_live.py`,
-thirteen questions with invented names and a floor of eleven. It runs
+fourteen questions with invented names and a floor of twelve. It runs
 whenever a chat endpoint is set and skips in CI.
+
+## Dates in the question
+
+`parse_dates` reads one date range from the question, and the range
+bounds the search and every table. "since X" runs from the start of X to
+the end of today. "from X to Y", "X to Y" and "between X and Y" run from
+the start of X to the end of Y. X and Y can be a year, a month and a
+year, a season and a year, or a day in `YYYY-MM-DD`. "from X" with no
+end stays the one period X. A count is bounded by the range in local
+days in `RECALL_TZ`; a `top` call is bounded by its own year when it has
+one, else by the range, and a streaks table is never bounded. Each
+bounded table says its range in its first line, and its ref carries
+`since` and `until`. "Since January 2017" once read as January 2017
+alone, so three questions about nine years searched one month.
+
+Every count also says the day its store ends, the newest row of that
+source. An export copied in August holds nothing from September, and
+the table says so, so an answer can tell an old export from silence.
 
 ## Tell the model your name
 

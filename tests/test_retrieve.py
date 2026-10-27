@@ -78,6 +78,33 @@ class TestParseDates(unittest.TestCase):
         self.assertEqual(retrieve.parse_dates("summarize the program", TODAY),
                          retrieve.NO_DATES)
 
+    def test_since_runs_from_its_period_to_the_end_of_today(self):
+        """"Since January 2017" filtered to January 2017 alone, so three
+        questions about nine years searched one month."""
+        for question, since in (
+                ("since January 2017 how many days did I text cal", "2017-01-01"),
+                ("how many texts since 2019", "2019-01-01"),
+                ("whom did I text since spring 2020", "2020-03-01"),
+                ("since 2021-02-03 who emailed me", "2021-02-03")):
+            with self.subTest(question=question):
+                f = retrieve.parse_dates(question, TODAY)
+                self.assertEqual((f.since, f.until), (since, "2026-08-18"))
+                self.assertTrue(f.phrase.startswith("since "))
+
+    def test_a_range_spans_the_start_of_its_first_period_to_the_end_of_its_last(self):
+        for question, span in (
+                ("since January 2017 to October 2026", ("2017-01-01", "2026-11-01")),
+                ("between March 2020 and June 2021", ("2020-03-01", "2021-07-01")),
+                ("from 2018 to 2019", ("2018-01-01", "2020-01-01")),
+                ("march 2019 through 2020-02-03", ("2019-03-01", "2020-02-04"))):
+            with self.subTest(question=question):
+                f = retrieve.parse_dates(question, TODAY)
+                self.assertEqual((f.since, f.until), span)
+
+    def test_from_one_period_alone_stays_that_period(self):
+        f = retrieve.parse_dates("invoice from March 2023", TODAY)
+        self.assertEqual((f.since, f.until), ("2023-03-01", "2023-04-01"))
+
 
 class TestWhereClause(unittest.TestCase):
     def test_no_filters_produce_no_where(self):

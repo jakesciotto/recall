@@ -60,14 +60,44 @@ def _span(year, month, months):
             dt.date(year + (end - 1) // 12, (end - 1) % 12 + 1, 1).isoformat())
 
 
+TERM = (r"(?<!\d)((?:19|20)\d{2}-\d{2}-\d{2}|(?:"
+        + "|".join(list(MONTHS) + list(SEASONS))
+        + r")\s+(?:19|20)\d{2}|(?:19|20)\d{2})(?!\d)")
+_TO = r"\s+(?:to|until|till|through)\s+"
+RANGES = (
+    re.compile(r"\b(?:since|from)\s+" + TERM + _TO + TERM),
+    re.compile(r"\bbetween\s+" + TERM + r"\s+and\s+" + TERM),
+    re.compile(TERM + _TO + TERM),
+)
+SINCE = re.compile(r"\bsince\s+" + TERM)
+
+
 def parse_dates(query, today):
     """Pull a date range out of the question.
 
     `today` is a parameter, never the clock, so tests cannot fail on 1
     January. Deliberately conservative: a wrong filter removes an answer
-    rather than degrading it.
+    rather than degrading it. "since X" runs from the start of X to the
+    end of today, and a range spans the start of its first period to the
+    end of its last.
     """
     q = (query or "").lower()
+    for pattern in RANGES:
+        m = pattern.search(q)
+        if m:
+            first, last = _period(m.group(1), today), _period(m.group(2), today)
+            if first.since and last.since and first.since < last.until:
+                return DateFilter(first.since, last.until, phrase=m.group(0))
+    m = SINCE.search(q)
+    if m:
+        first = _period(m.group(1), today)
+        end = (today + dt.timedelta(days=1)).isoformat()
+        if first.since and first.since < end:
+            return DateFilter(first.since, end, phrase=m.group(0))
+    return _period(q, today)
+
+
+def _period(q, today):
     m = re.search(ISO_DAY, q)
     if m:
         try:

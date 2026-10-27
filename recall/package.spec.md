@@ -274,3 +274,57 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   via: test_it_renders_saves_and_returns_a_source
   because: the judge once graded a clipped source and called present text absent, and a table that can change between the ask and the judgment is the same fault one layer up
   kinds: none
+- a name matches by its letters: A contact name matches the asked name when both read the same after resolve drops case, accents, emoji and punctuation.
+  over: "dot", "DOT", "zoe obrien" and a curly apostrophe spelling, against names that hold "dot" with an emoji and "Zoë O'Brien"
+  via: test_a_name_matches_by_its_letters_not_its_symbols
+  because: a short nickname matched eleven contacts, the one meant among them saved as the nickname with an emoji, so a count over nine years of messages counted nothing
+  refuted: resolve skips the exact folded name and falls through to the exact lowercase label -> the test test_a_name_matches_by_its_letters_not_its_symbols went red (2026-10-26)
+  kinds: none
+- a partial name matches only at a word start: A partial name matches a contact only where one word of the contact's name starts with it.
+  over: "cal" against Pascal Ortega, Rascal Bay, Technical Support, Calvin Reed and Calla Moss
+  via: test_a_partial_name_matches_only_at_a_word_start
+  because: three of eleven matches held the asked name only inside a word, and they made a clear name look unclear
+  refuted: resolve matches the partial name anywhere inside a folded name -> the test test_a_partial_name_matches_only_at_a_word_start went red (2026-10-26)
+  kinds: none
+- a name with no messages yields: A matching contact with no message in the source drops out, and when one match is left the count runs for it.
+  over: "jen" against Jen Smith with no messages and Jenny Carter with five
+  via: test_a_name_with_no_messages_yields_to_the_one_with_messages
+  because: a contact with no message in the source cannot be the person the count asks about
+  refuted: _narrow never resolves to the one match that has messages -> the test test_a_name_with_no_messages_yields_to_the_one_with_messages went red (2026-10-26)
+  kinds: none
+- an unclear name is answered by code: Every answer path answers a count whose person did not resolve with the ask-back that code writes, and calls no model.
+  over: recall ask, POST /ask, POST /ask/stream and the eval run, each with a trace that carries an ask-back and a model that raises when called
+  via: test_every_ask_path_answers_an_unclear_name_without_the_model
+  because: a table that said ask again reached the model, and the model counted six days from eight screenshots for a contact with nine years of daily messages
+  refuted: handle_ask ignores the ask-back and calls the model -> the test test_every_ask_path_answers_an_unclear_name_without_the_model went red (2026-10-26)
+  kinds: none
+- a count states its active days: A count reports its active days in total and in each period.
+  over: three active days across 2021 and 2022 in threads with one person
+  via: test_a_count_states_its_active_days_in_total_and_per_period
+  because: "on how many days did I text her" had no number anywhere, so the model counted the dates of the sources it was given
+  refuted: _count reports zero active days -> the test test_a_count_states_its_active_days_in_total_and_per_period went red (2026-10-26)
+  kinds: none
+- the question's dates bound a count: Every statement of a count binds the start and the end of the question's date range in local days.
+  over: a count with a person and a count without one, in America/Denver, for the range 2019-01-01 to 2020-01-01
+  via: test_the_question_dates_bound_every_count_statement_in_the_local_zone
+  because: a table that counts all time beside chunks from one period answers a question nobody asked
+  refuted: _count drops the question's date range -> the test test_the_question_dates_bound_every_count_statement_in_the_local_zone went red (2026-10-26)
+  kinds: none
+- one date range reaches the tables and the search: gather reads the date range once and hands the same range to every table and to retrieval.
+  over: one gather for "since January 2019, on how many days did I text Ada" with one count call
+  via: test_one_date_range_reaches_the_tables_and_the_search
+  because: a table and chunks that read two periods give an answer that mixes them
+  refuted: gather hands no date range to the tables -> the test test_one_date_range_reaches_the_tables_and_the_search went red (2026-10-26)
+  kinds: none
+- since runs to today: parse_dates reads "since X" as the start of X up to the end of today.
+  over: since a month and a year, since a year, since a season and a year, and since a day
+  via: test_since_runs_from_its_period_to_the_end_of_today
+  because: "since January 2017" read as January 2017 alone, so three questions about nine years searched one month
+  refuted: parse_dates skips the since phrase -> the test test_since_runs_from_its_period_to_the_end_of_today went red (2026-10-26)
+  kinds: none
+- a range spans both ends: parse_dates reads "from X to Y", "X to Y" and "between X and Y" as the start of X up to the end of Y.
+  over: four ranges built from years, months, a season and a day
+  via: test_a_range_spans_the_start_of_its_first_period_to_the_end_of_its_last
+  because: "since January 2017 to October 2026" read as January 2017 alone
+  refuted: parse_dates skips every range phrase -> the test test_a_range_spans_the_start_of_its_first_period_to_the_end_of_its_last went red (2026-10-26)
+  kinds: none

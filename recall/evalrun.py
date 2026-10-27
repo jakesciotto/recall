@@ -69,7 +69,9 @@ def ask_one(question, embedder, k=retrieve.TOP_K, expected=None,
                                           today=dt.date.today())
     prompt = answer.build_prompt(question, hits)
     text, meta, error = None, {}, None
-    if config.CHAT_URL:
+    if trace.get("ask_back"):
+        text = trace["ask_back"]
+    elif config.CHAT_URL:
         try:
             text = answer.chat(prompt, meta=meta)
         except Exception as e:

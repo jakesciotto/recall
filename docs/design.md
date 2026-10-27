@@ -54,6 +54,14 @@ The 0.37 spec for this component held no file-existence check, so none is retire
 
 "The judge reads the table the answerer read". The ref of a stats source carries a digest of its rendered text, and the text is stored under that ref. A table that could change between the ask and the judgment is the clipped-source fault one layer up.
 
+"A name matches by its letters", "a partial name matches only at a word start" and "a name with no messages yields" are one rule for the person a count asks about. The owner asked about a contact by a short nickname, saved with an emoji after it. The exact match missed the emoji, the substring match found eleven contacts, three of them only inside a word, and the count stopped. A folded name compares letters only, a partial name must start a word, and a match with no message in the source cannot be the person meant.
+
+"An unclear name is answered by code". The table that stopped said "ask again with one of these names", and the model ignored it: it counted the dates of eight screenshots and answered "six days" for a contact with nine years of daily messages. An instruction inside a source is a request to a model, and a model can decline it. So the ask-back is an answer, written by code on every answer path, and the model is never called for it. The cost is that a mixed question gets no content answer until the asker names one person.
+
+"A count states its active days". "On how many days did I text her" had no number in any table, and a model given eight sources counts their dates. The count now carries the number of active days in total and per period.
+
+"The question's dates bound a count", "one date range reaches the tables and the search", "since runs to today" and "a range spans both ends" are one rule for dates. "Since January 2017" read as January 2017 alone, the search looked at one month, and every table counted all time. One date range is read once per question, and the search, a count and a top call with no year all use it.
+
 ### Source adapters
 
 `recall ingest` needs no configuration because detection lives in the adapter, not in a config file. To drop a file under `data/` is the whole setup. A new source is one small class that registers itself.

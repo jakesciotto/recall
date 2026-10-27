@@ -70,18 +70,19 @@ BENCH = {
     "who sent me the most email in 2021, and is that sender a person or a service?": "top",
     "how often did I DM ada on twitter each year?": "count",
     "when did I stop tweeting regularly, and what was my last tweet before the gap?": "count",
+    "Since January 2019 how many total days have I sent or received a text from Bo Peep in imessage": "count",
     "what did I write about the Chicago trip in 2018": None,
     "when did I last see the dentist": None,
     "show the email where Bo Peep and I planned a dinner": None,
     "what was on my calendar on 2011-06-15?": None,
 }
-BENCH_FLOOR = 11
+BENCH_FLOOR = 12
 
 
 class TestPlannerBench(unittest.TestCase):
-    """The planner is a model, so it is measured, not trusted. Thirteen
-    questions, nine the store can count and four it cannot. The floor
-    leaves room for one miss; a second miss is a prompt regression or a
+    """The planner is a model, so it is measured, not trusted. Fourteen
+    questions, ten the store can count and four it cannot. The floor
+    leaves room for two misses; a third miss is a prompt regression or a
     model change worth reading."""
 
     def test_the_planner_plans_the_bench(self):
