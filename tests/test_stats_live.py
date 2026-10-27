@@ -71,19 +71,25 @@ BENCH = {
     "how often did I DM ada on twitter each year?": "count",
     "when did I stop tweeting regularly, and what was my last tweet before the gap?": "count",
     "Since January 2019 how many total days have I sent or received a text from Bo Peep in imessage": "count",
+    "how many days since january 17 2017 have i sent or received a text message in imessage from ada": "count",
+    "Since January 17, 2017 to today how many days have I sent or received a text message from Ada 555-000-1111": "count",
+    "how many total days have I sent or received a text in imessage from bo": "count",
+    "how many texts did I exchange with 555-000-2222 since 2020": "count",
     "what did I write about the Chicago trip in 2018": None,
     "when did I last see the dentist": None,
     "show the email where Bo Peep and I planned a dinner": None,
     "what was on my calendar on 2011-06-15?": None,
 }
-BENCH_FLOOR = 12
+BENCH_FLOOR = 16
 
 
 class TestPlannerBench(unittest.TestCase):
-    """The planner is a model, so it is measured, not trusted. Fourteen
-    questions, ten the store can count and four it cannot. The floor
-    leaves room for two misses; a third miss is a prompt regression or a
-    model change worth reading."""
+    """The planner is a model, so it is measured, not trusted. Eighteen
+    questions, fourteen the store can count and four it cannot. Four of
+    the fourteen are the shapes that failed in the log in October 2026: a
+    written day, a range to today, a lowercase nickname, a phone number.
+    The floor leaves room for two misses; a third miss is a prompt
+    regression or a model change worth reading."""
 
     def test_the_planner_plans_the_bench(self):
         if not config.CHAT_URL:

@@ -339,6 +339,24 @@ def _local(day, tz):
     return start.astimezone(dt.timezone.utc).isoformat()
 
 
+def _store_end(conn, params):
+    end = db.fetch(conn, _END, params)
+    return _day(end[0]["day"]) if end and end[0].get("day") else None
+
+
+def _clip(window, end):
+    """The window stopped at the day after the store end when the question
+    asked past it, with the end the question asked for; else the window
+    and None. A table bounded to today over an export copied in August
+    reads as an answer about today, and nothing in it says otherwise."""
+    if not window or not end:
+        return window, None
+    stop = (end + dt.timedelta(days=1)).isoformat()
+    if window[0] < stop < window[1]:
+        return (window[0], stop), window[1]
+    return window, None
+
+
 def _narrow(conn, source, asked, candidates, labels):
     by_shown = {shown: handles for shown, handles in names(labels).values()}
     pairs = [(c, h) for c in candidates for h in by_shown.get(c, [])]
@@ -377,12 +395,14 @@ def _count(conn, call, labels, tz, dates=None):
         rows_sql, days_sql = _COUNT_WITH, _DAYS_WITH
     else:
         rows_sql, days_sql = _COUNT_ALL, _DAYS_ALL
+    out["end"] = _store_end(conn, params)
     bounds = ""
-    window = _window(dates)
+    window, asked = _clip(_window(dates), out["end"])
     if window:
         params["since"], params["until"] = (_local(d, tz) for d in window)
         bounds = _BOUNDS
         out["window"] = window
+        out["asked_until"] = asked
     out["rows"] = db.fetch(conn, rows_sql.format(period=_PERIOD[call["by"]],
                                                  bounds=bounds), params)
     days = [_day(r["day"]) for r in db.fetch(conn, days_sql.format(bounds=bounds),
@@ -394,8 +414,6 @@ def _count(conn, call, labels, tz, dates=None):
     out["streak"] = trends.longest_streak(days)
     out["gap"] = longest_gap(days)
     out["excluded"] = sum(int(r.get("excluded") or 0) for r in out["rows"])
-    end = db.fetch(conn, _END, params)
-    out["end"] = _day(end[0]["day"]) if end and end[0].get("day") else None
     return out
 
 
@@ -408,13 +426,16 @@ def _bounds(year, tz):
 def _top(conn, call, labels, tz, dates=None):
     out = _base(call, labels)
     params = {"source": call["source"], "excluded": list(EXCLUDED),
-              "contacts": CONTACTS, "short_code": SHORT_CODE, "limit": call["n"]}
+              "contacts": CONTACTS, "short_code": SHORT_CODE, "limit": call["n"],
+              "tz": _zone_name(tz)}
     bounds = ""
     window = _window(dates)
     if call["year"]:
         params["since"], params["until"] = _bounds(call["year"], tz)
         bounds = _BOUNDS
     elif window:
+        out["end"] = _store_end(conn, params)
+        window, out["asked_until"] = _clip(window, out["end"])
         params["since"], params["until"] = (_local(d, tz) for d in window)
         bounds = _BOUNDS
         out["window"] = window
@@ -521,6 +542,11 @@ def render(result, today=None, tz=None):
     if window:
         lines.append(f"The question's dates bound this table: from {window[0]} up to, "
                      f"not including, {window[1]}, in local days.")
+        if result.get("asked_until"):
+            lines.append(f"The question asked until {result['asked_until']}, and the "
+                         f"{source} store ends on {result['end']}: the export holds "
+                         f"nothing later, so the range stops there. Days after "
+                         f"{result['end']} are missing from the export, not silent.")
     if call["metric"] == "count" and call.get("with") and not result["handles"]:
         lines.append(ask_back(result) + " This call counted nothing.")
         return "\n".join(lines)
