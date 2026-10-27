@@ -328,3 +328,15 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   because: "since January 2017 to October 2026" read as January 2017 alone
   refuted: parse_dates skips every range phrase -> the test test_a_range_spans_the_start_of_its_first_period_to_the_end_of_its_last went red (2026-10-26)
   kinds: none
+- a written day is one day: parse_dates reads a day written as a month, a day and a year, in either order, with or without a comma or an ordinal, as that one day.
+  over: January 17, 2017 and january 17 2017 and 17 January 2017 and the 17th of January, 2017
+  via: test_a_written_day_bounds_that_one_day
+  because: "since January 17 2017" read as the year 2017, so a count over nine years of texts covered one year
+  refuted: _period skips the written day forms -> the test test_a_written_day_bounds_that_one_day went red (2026-10-27)
+  kinds: none
+- a range can end at the present: parse_dates reads "to today", "until today" and "and now" after a period as the end of today.
+  over: from a written day to today, between a year and now, and a year until today
+  via: test_a_range_can_end_at_today_or_now
+  because: "Since January 17, 2017 to today" had no second period, so the range read as the year alone
+  refuted: parse_dates reads today and now as a period -> the test test_a_range_can_end_at_today_or_now went red (2026-10-27)
+  kinds: none
