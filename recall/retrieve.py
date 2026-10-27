@@ -42,6 +42,13 @@ SEASONS = {"spring": (3, 3), "summer": (6, 3), "fall": (9, 3),
 # question never mentioned.
 YEAR = r"(?<!\d)((?:19|20)\d{2})(?!\d)"
 ISO_DAY = r"(?<!\d)((?:19|20)\d{2})-(\d{2})-(\d{2})(?!\d)"
+# A day written out: "January 17, 2017", "17 January 2017", "the 17th of
+# January 2017". Without these a question that names such a day read as
+# its year, and a count over nine years covered one.
+_MONTH = "|".join(MONTHS)
+_DAY = r"\d{1,2}(?:st|nd|rd|th)?"
+MONTH_DAY_YEAR = r"\b(" + _MONTH + r")\s+(" + _DAY + r"),?\s+" + YEAR
+DAY_MONTH_YEAR = r"(?<!\d)(" + _DAY + r")\s+(?:of\s+)?(" + _MONTH + r"),?\s+" + YEAR
 
 
 def rrf(rank_lists, k=RRF_K):
@@ -60,14 +67,19 @@ def _span(year, month, months):
             dt.date(year + (end - 1) // 12, (end - 1) % 12 + 1, 1).isoformat())
 
 
-TERM = (r"(?<!\d)((?:19|20)\d{2}-\d{2}-\d{2}|(?:"
-        + "|".join(list(MONTHS) + list(SEASONS))
-        + r")\s+(?:19|20)\d{2}|(?:19|20)\d{2})(?!\d)")
+_PERIOD = (r"(?<!\d)(?:(?:19|20)\d{2}-\d{2}-\d{2}"
+           + r"|(?:" + _MONTH + r")\s+" + _DAY + r",?\s+(?:19|20)\d{2}"
+           + r"|" + _DAY + r"\s+(?:of\s+)?(?:" + _MONTH + r"),?\s+(?:19|20)\d{2}"
+           + r"|(?:" + "|".join(list(MONTHS) + list(SEASONS))
+           + r")\s+(?:19|20)\d{2}|(?:19|20)\d{2})(?!\d)")
+TERM = "(" + _PERIOD + ")"
+# A range can end at the present: "from January 2017 to today".
+END = "(" + _PERIOD + r"|(?:today|now)\b)"
 _TO = r"\s+(?:to|until|till|through)\s+"
 RANGES = (
-    re.compile(r"\b(?:since|from)\s+" + TERM + _TO + TERM),
-    re.compile(r"\bbetween\s+" + TERM + r"\s+and\s+" + TERM),
-    re.compile(TERM + _TO + TERM),
+    re.compile(r"\b(?:since|from)\s+" + TERM + _TO + END),
+    re.compile(r"\bbetween\s+" + TERM + r"\s+and\s+" + END),
+    re.compile(TERM + _TO + END),
 )
 SINCE = re.compile(r"\bsince\s+" + TERM)
 
@@ -85,29 +97,50 @@ def parse_dates(query, today):
     for pattern in RANGES:
         m = pattern.search(q)
         if m:
-            first, last = _period(m.group(1), today), _period(m.group(2), today)
+            first = _period(m.group(1), today)
+            last = (_today(today) if m.group(2) in ("today", "now")
+                    else _period(m.group(2), today))
             if first.since and last.since and first.since < last.until:
                 return DateFilter(first.since, last.until, phrase=m.group(0))
     m = SINCE.search(q)
     if m:
         first = _period(m.group(1), today)
-        end = (today + dt.timedelta(days=1)).isoformat()
+        end = _today(today).until
         if first.since and first.since < end:
             return DateFilter(first.since, end, phrase=m.group(0))
     return _period(q, today)
 
 
+def _one_day(year, month, day, today, phrase):
+    try:
+        day = dt.date(year, month, day)
+    except ValueError:
+        return None
+    if day.year > today.year + 1:
+        return None
+    return DateFilter(day.isoformat(), (day + dt.timedelta(days=1)).isoformat(),
+                      phrase=phrase)
+
+
+def _today(today):
+    return _one_day(today.year, today.month, today.day, today, "today")
+
+
 def _period(q, today):
     m = re.search(ISO_DAY, q)
     if m:
-        try:
-            day = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError:
-            day = None
-        if day and day.year <= today.year + 1:
-            return DateFilter(day.isoformat(),
-                              (day + dt.timedelta(days=1)).isoformat(),
-                              phrase=m.group(0))
+        f = _one_day(int(m.group(1)), int(m.group(2)), int(m.group(3)), today,
+                     m.group(0))
+        if f:
+            return f
+    for pattern, order in ((MONTH_DAY_YEAR, (3, 1, 2)), (DAY_MONTH_YEAR, (3, 2, 1))):
+        m = re.search(pattern, q)
+        if m:
+            year, month, day = (m.group(i) for i in order)
+            f = _one_day(int(year), MONTHS[month], int(re.sub(r"\D", "", day)),
+                         today, m.group(0))
+            if f:
+                return f
 
     m = re.search(r"\b(" + "|".join(MONTHS) + r")\s+" + YEAR, q)
     if m:

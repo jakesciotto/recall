@@ -574,3 +574,14 @@ window re-keys to its next message. Two rules. Count refs per run, not
 only texts: a duplicate ref is silent everywhere else. And chase a
 rewrite count that does not match the prediction, even by one; the
 difference is the finding.
+
+**A parser proven on the shapes you wrote meets the shape the user
+writes.** The date parser read a year, a month and a year, a season and a
+year, and an ISO day, and every test passed. The first dated question
+after it shipped said "since January 17, 2017 to today": a written day
+and an end at the present, neither in the set. The range fell back to the
+year, and a count over nine years of texts covered 2017. The fallback was
+silent, because a year is a valid range. The fault showed only because
+the table's first line stated its range beside a question that named a
+different day. Before trusting a parser's test list, read the real
+phrasings in the query log, where `date_phrase` sits beside the question.

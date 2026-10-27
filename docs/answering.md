@@ -148,13 +148,16 @@ whenever a chat endpoint is set and skips in CI.
 bounds the search and every table. "since X" runs from the start of X to
 the end of today. "from X to Y", "X to Y" and "between X and Y" run from
 the start of X to the end of Y. X and Y can be a year, a month and a
-year, a season and a year, or a day in `YYYY-MM-DD`. "from X" with no
-end stays the one period X. A count is bounded by the range in local
+year, a season and a year, a day in `YYYY-MM-DD`, or a day written out,
+such as January 17, 2017 or 17 January 2017. Y can also be today or now.
+"from X" with no end stays the one period X. A count is bounded by the range in local
 days in `RECALL_TZ`; a `top` call is bounded by its own year when it has
 one, else by the range, and a streaks table is never bounded. Each
 bounded table says its range in its first line, and its ref carries
 `since` and `until`. "Since January 2017" once read as January 2017
-alone, so three questions about nine years searched one month.
+alone, so three questions about nine years searched one month. "Since
+January 17, 2017 to today" then read as the year 2017, because the parser
+knew no written day and no end at the present.
 
 Every count also says the day its store ends, the newest row of that
 source. An export copied in August holds nothing from September, and

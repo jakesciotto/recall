@@ -105,6 +105,41 @@ class TestParseDates(unittest.TestCase):
         f = retrieve.parse_dates("invoice from March 2023", TODAY)
         self.assertEqual((f.since, f.until), ("2023-03-01", "2023-04-01"))
 
+    def test_a_written_day_bounds_that_one_day(self):
+        """"Since January 17 2017" read as the year 2017, so a count over
+        nine years of texts covered one year of them."""
+        for question in ("texts on January 17, 2017", "texts on january 17 2017",
+                         "texts on 17 January 2017",
+                         "texts on the 17th of January, 2017"):
+            with self.subTest(question=question):
+                f = retrieve.parse_dates(question, TODAY)
+                self.assertEqual((f.since, f.until), ("2017-01-17", "2017-01-18"))
+
+    def test_an_impossible_written_day_does_not_fire(self):
+        f = retrieve.parse_dates("on February 30 2021", TODAY)
+        self.assertEqual(f, retrieve.parse_dates("in 2021", TODAY))
+
+    def test_since_a_written_day_runs_to_the_end_of_today(self):
+        for question in ("since january 17 2017 how many days did I text cal",
+                         "Since January 17, 2017 to today how many days did I text cal"):
+            with self.subTest(question=question):
+                f = retrieve.parse_dates(question, TODAY)
+                self.assertEqual((f.since, f.until), ("2017-01-17", "2026-08-18"))
+
+    def test_a_range_can_end_at_today_or_now(self):
+        """"Since January 17, 2017 to today" has no second period, so the
+        range read as the year alone."""
+        for question, since in (("from January 17, 2017 to today", "2017-01-17"),
+                                ("between 2019 and now", "2019-01-01"),
+                                ("2019 until today", "2019-01-01")):
+            with self.subTest(question=question):
+                f = retrieve.parse_dates(question, TODAY)
+                self.assertEqual((f.since, f.until), (since, "2026-08-18"))
+
+    def test_nowhere_is_not_now(self):
+        self.assertEqual(retrieve.parse_dates("from 2019 to nowhere", TODAY),
+                         retrieve.parse_dates("in 2019", TODAY))
+
 
 class TestWhereClause(unittest.TestCase):
     def test_no_filters_produce_no_where(self):
