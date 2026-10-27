@@ -14,9 +14,10 @@ TZ = dt.timezone.utc
 
 
 class Cursor:
-    def __init__(self, log, result):
+    def __init__(self, log, result, end):
         self.log = log
         self.result = result
+        self.end = end
 
     def __enter__(self):
         return self
@@ -26,29 +27,41 @@ class Cursor:
 
     def execute(self, sql, params=None):
         self.log.append((sql, params))
+        self.last = sql
 
     def fetchone(self):
         # The driver parses the json column; the fake hands the rows back.
+        # The store-end query reads the end set, wherever it runs, so the
+        # positional sets stay in reading order: rows, then days.
+        if "max(occurred_at)" in self.last:
+            return [self.end or []]
         return [self.result.pop(0) if self.result else []]
 
 
 class Conn:
-    """Answers every fetch with the next canned row set."""
+    """Answers every fetch with the next canned row set; the store-end
+    query reads `end` instead."""
 
-    def __init__(self, *results):
+    def __init__(self, *results, end=None):
         self.log = []
         self.results = list(results)
+        self.end = end
         self.commits = 0
         self.rollbacks = 0
 
     def cursor(self):
-        return Cursor(self.log, self.results)
+        return Cursor(self.log, self.results, self.end)
 
     def commit(self):
         self.commits += 1
 
     def rollback(self):
         self.rollbacks += 1
+
+
+def counted(conn):
+    """The statements that count, with the store-end query left out."""
+    return [row for row in conn.log if "max(occurred_at)" not in row[0]]
 
 
 LABELS = {"+15550001111": "Ada Lovelace", "ada@example.org": "Ada Lovelace",
@@ -211,7 +224,7 @@ class TestCountQuery(unittest.TestCase):
         self.assertEqual(result["last"], dt.date(2022, 6, 7))
         self.assertEqual(result["streak"], (2, dt.date(2021, 5, 3), dt.date(2021, 5, 4)))
         self.assertEqual(result["gap"], (398, dt.date(2021, 5, 4), dt.date(2022, 6, 7)))
-        sql = conn.log[0][0]
+        sql = counted(conn)[0][0]
         for column in ("sent_direct", "received_direct", "sent_group",
                        "received_group", "excluded"):
             self.assertIn(column, sql)
@@ -221,7 +234,7 @@ class TestCountQuery(unittest.TestCase):
         conn = Conn([{"period": "all", "sent": 5, "received": 7, "excluded": 1}], [])
         result = stats.run(conn, {"metric": "count", "by": "all"}, LABELS, TZ)
         self.assertIsNone(result["label"])
-        self.assertNotIn("thread", conn.log[0][0].split("FROM event")[1].split("WHERE")[0])
+        self.assertNotIn("thread", counted(conn)[0][0].split("FROM event")[1].split("WHERE")[0])
         self.assertEqual(result["rows"][0]["sent"], 5)
 
     def test_the_period_follows_by(self):
@@ -229,7 +242,7 @@ class TestCountQuery(unittest.TestCase):
             with self.subTest(by=by):
                 conn = Conn([], [])
                 stats.run(conn, {"metric": "count", "by": by}, LABELS, TZ)
-                self.assertIn(expr, conn.log[0][0])
+                self.assertIn(expr, counted(conn)[0][0])
 
     def test_an_unknown_person_runs_no_query(self):
         conn = Conn()
@@ -242,7 +255,7 @@ class TestCountQuery(unittest.TestCase):
                      {"label": "Jenny Carter", "messages": 5}])
         result = stats.run(conn, {"metric": "count", "with": "jen"}, LABELS, TZ)
         self.assertEqual(len(conn.log), 1)
-        sql, params = conn.log[0]
+        sql, params = counted(conn)[0]
         self.assertIn("unnest(%(shown)s::text[], %(handles)s::text[])", sql)
         self.assertNotIn("Jen Smith", sql)
         self.assertEqual(params["shown"], ["Jen Smith", "Jenny Carter"])
@@ -282,7 +295,7 @@ class TestCountQuery(unittest.TestCase):
                 {"period": "2022", "sent_direct": 1, "received_direct": 0,
                  "sent_group": 0, "received_group": 0, "excluded": 0}]
         days = [{"day": "2021-05-03"}, {"day": "2021-05-04"}, {"day": "2022-06-07"}]
-        conn = Conn(rows, days, [{"day": "2026-08-15"}])
+        conn = Conn(rows, days, end=[{"day": "2026-08-15"}])
         result = stats.run(conn, {"metric": "count", "with": "ada lovelace"},
                            LABELS, TZ)
         self.assertEqual(result["days"], 3)
@@ -295,9 +308,9 @@ class TestCountQuery(unittest.TestCase):
         self.assertIn("2022 | 1 | 0 | 0 | 0 | 1", text)
 
     def test_a_count_names_the_day_its_store_ends(self):
-        conn = Conn([], [{"day": "2021-05-03"}], [{"day": "2026-08-15"}])
+        conn = Conn([], [{"day": "2021-05-03"}], end=[{"day": "2026-08-15"}])
         result = stats.run(conn, {"metric": "count", "by": "all"}, LABELS, TZ)
-        sql, params = conn.log[2]
+        sql, params = conn.log[0]
         self.assertIn("max(occurred_at)", sql)
         self.assertEqual(params["source"], "messages")
         self.assertIn("The messages store ends on 2026-08-15: the export holds "
@@ -326,6 +339,46 @@ class TestCountQuery(unittest.TestCase):
                 text = stats.render(result, today=dt.date(2026, 10, 26), tz=denver)
                 self.assertIn("from 2019-01-01 until 2020-01-01", text.splitlines()[0])
 
+
+    def test_a_bound_stops_at_the_store_end_when_the_question_asks_past_it(self):
+        """The invariant. "To today" over an export copied in August bounded
+        the table to today, and the model wrote "between January 2017 and
+        today" with no sign that 73 days were missing."""
+        dates = retrieve.DateFilter("2017-01-17", "2026-10-28",
+                                    "since january 17, 2017 to today")
+        for call in ({"metric": "count", "with": "ada lovelace"},
+                     {"metric": "count", "by": "all"}):
+            with self.subTest(call=call):
+                conn = Conn([], [], end=[{"day": "2026-08-15"}])
+                result = stats.run(conn, call, LABELS, TZ, dates=dates)
+                counted = [(sql, params) for sql, params in conn.log
+                           if "max(occurred_at)" not in sql]
+                self.assertEqual(len(counted), 2)
+                for sql, params in counted:
+                    self.assertEqual(params["until"], "2026-08-16T00:00:00+00:00")
+                self.assertEqual(result["window"], ("2017-01-17", "2026-08-16"))
+                self.assertEqual(result["asked_until"], "2026-10-28")
+                text = stats.render(result, today=dt.date(2026, 10, 27), tz=TZ)
+                self.assertIn("from 2017-01-17 until 2026-08-16", text.splitlines()[0])
+                self.assertIn("The question asked until 2026-10-28, and the messages "
+                              "store ends on 2026-08-15", text)
+                self.assertIn("missing from the export, not silent", text)
+        conn = Conn([], end=[{"day": "2026-08-15"}])
+        result = stats.run(conn, {"metric": "top"}, LABELS, TZ, dates=dates)
+        top = [params for sql, params in conn.log if "max(occurred_at)" not in sql]
+        self.assertEqual(top[0]["until"], "2026-08-16T00:00:00+00:00")
+        self.assertEqual(result["window"], ("2017-01-17", "2026-08-16"))
+        self.assertEqual(result["asked_until"], "2026-10-28")
+
+    def test_a_bound_inside_the_store_is_left_alone(self):
+        dates = retrieve.DateFilter("2019-01-01", "2020-01-01", "2019")
+        conn = Conn([], [], end=[{"day": "2026-08-15"}])
+        result = stats.run(conn, {"metric": "count", "by": "all"}, LABELS, TZ,
+                           dates=dates)
+        self.assertEqual(result["window"], ("2019-01-01", "2020-01-01"))
+        self.assertIsNone(result["asked_until"])
+        self.assertNotIn("The question asked until",
+                         stats.render(result, today=dt.date(2026, 10, 27), tz=TZ))
 
 class TestTopQuery(unittest.TestCase):
     def test_members_resolve_to_a_person_inside_the_query(self):
@@ -357,7 +410,7 @@ class TestTopQuery(unittest.TestCase):
         dates = retrieve.DateFilter("2020-01-01", "2026-10-27", "since 2020")
         conn = Conn([])
         result = stats.run(conn, {"metric": "top"}, LABELS, TZ, dates=dates)
-        sql, params = conn.log[0]
+        sql, params = [row for row in conn.log if "max(occurred_at)" not in row[0]][0]
         self.assertIn("e.occurred_at >= %(since)s", sql)
         self.assertEqual(params["since"], "2020-01-01T00:00:00+00:00")
         self.assertEqual(result["window"], ("2020-01-01", "2026-10-27"))
@@ -701,7 +754,7 @@ class TestHit(unittest.TestCase):
         self.assertEqual(stats.ref(call, hit["text"]), hit["ref"])
 
     def test_a_dated_hit_keys_its_ref_on_its_dates(self):
-        conn = Conn([], [], [{"day": "2021-05-03"}], [])
+        conn = Conn([], [], [], end=[{"day": "2021-05-03"}])
         call = stats.validate({"metric": "count", "by": "all"})
         dates = retrieve.DateFilter("2019-01-01", "2020-01-01", "2019")
         hit = stats.hit(conn, call, tz=TZ, today=dt.date(2026, 10, 26), dates=dates)

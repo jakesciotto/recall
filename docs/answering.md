@@ -159,6 +159,13 @@ alone, so three questions about nine years searched one month. "Since
 January 17, 2017 to today" then read as the year 2017, because the parser
 knew no written day and no end at the present.
 
+A range that runs past the store end stops at the day after the store
+end, and the table names the end the question asked for. "To today" over
+an export copied in August once bounded the table to today, and the
+answer read as an answer about today with no sign that 73 days were
+missing. The ref carries the clipped end, so the same question on a later
+day reads the same stored table.
+
 Every count also says the day its store ends, the newest row of that
 source. An export copied in August holds nothing from September, and
 the table says so, so an answer can tell an old export from silence.

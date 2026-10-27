@@ -340,3 +340,9 @@ Ingest, embed, retrieve, answer, serve, and log, with every failure mode named.
   because: "Since January 17, 2017 to today" had no second period, so the range read as the year alone
   refuted: parse_dates reads today and now as a period -> the test test_a_range_can_end_at_today_or_now went red (2026-10-27)
   kinds: none
+- a bound stops at the store end: When the question's range runs past the store end, every statement of a bounded table ends at the day after the store end, and the table names the end the question asked for.
+  over: a count with a person, a count without one, and a top call, each asked until 2026-10-28 over a store that ends 2026-08-15
+  via: test_a_bound_stops_at_the_store_end_when_the_question_asks_past_it
+  because: "to today" over an export copied in August bounded the table to today, and the model wrote "between January 2017 and today" with no sign that 73 days were missing
+  refuted: _clip never stops the window at the store end -> the test test_a_bound_stops_at_the_store_end_when_the_question_asks_past_it went red (2026-10-27)
+  kinds: none
